@@ -57,7 +57,7 @@ impl Matcher {
             .flat_map(|(index, rule)| rule.anchors.iter().map(move |_| index))
             .collect();
         let automaton = AhoCorasick::builder()
-            .match_kind(MatchKind::Standard)
+            .match_kind(MatchKind::LeftmostLongest)
             .kind(Some(AhoCorasickKind::DFA))
             .build(rules.iter().flat_map(|rule| rule.anchors))?;
         Ok(Self {
@@ -68,25 +68,25 @@ impl Matcher {
     }
 
     /// Yields every confirmed secret in `buf` as byte offsets, in anchor-hit
-    /// order. The same `(rule, start)` is never yielded twice.
+    /// order. The same `(rule, start)` is never yielded twice. Anchor hits
+    /// are non-overlapping and leftmost-longest, so an anchor embedded in a
+    /// longer one (`xoxb-` inside `xoxe.xoxb-`) only fires on its own.
     pub fn scan<'a>(&'a self, buf: &'a [u8]) -> impl Iterator<Item = Match> + 'a {
         let mut last_start = vec![None; self.rules.len()];
-        self.automaton
-            .find_overlapping_iter(buf)
-            .filter_map(move |hit| {
-                let index = self.rule_of_pattern[hit.pattern().as_usize()];
-                let rule = &self.rules[index];
-                let (start, end) = rule.confirm(buf, hit.start())?;
-                if last_start[index] == Some(start) {
-                    return None;
-                }
-                last_start[index] = Some(start);
-                Some(Match {
-                    rule_id: rule.id,
-                    start,
-                    end,
-                })
+        self.automaton.find_iter(buf).filter_map(move |hit| {
+            let index = self.rule_of_pattern[hit.pattern().as_usize()];
+            let rule = &self.rules[index];
+            let (start, end) = rule.confirm(buf, hit.start())?;
+            if last_start[index] == Some(start) {
+                return None;
+            }
+            last_start[index] = Some(start);
+            Some(Match {
+                rule_id: rule.id,
+                start,
+                end,
             })
+        })
     }
 }
 
@@ -145,6 +145,7 @@ mod tests {
     use crate::rules::Rule;
 
     const PREFIX_ID: &str = "prefix";
+    const LONG_PREFIX_ID: &str = "long_prefix";
     const KEYWORD_ID: &str = "keyword";
     const DOUBLE_ID: &str = "double";
     const VERIFIED_ID: &str = "verified";
@@ -153,6 +154,16 @@ mod tests {
         id: PREFIX_ID,
         anchors: &["tok_"],
         pattern: r"\btok_[0-9]{4}\b",
+        verify: None,
+    };
+    const UNBOUNDED_PREFIX: Rule = Rule {
+        pattern: r"tok_[0-9]{4}",
+        ..PREFIX
+    };
+    const LONG_PREFIX: Rule = Rule {
+        id: LONG_PREFIX_ID,
+        anchors: &["live_tok_"],
+        pattern: r"live_tok_[0-9]{4}",
         verify: None,
     };
     const KEYWORD: Rule = Rule {
@@ -233,6 +244,12 @@ mod tests {
     #[test_case(b"num_2461 num_0000", &[m(VERIFIED_ID, 9, 17)] ; "verify_rejects_only_failing")]
     fn verify_hook(buf: &[u8], expected: &[Match]) {
         assert_eq!(scan(&[VERIFIED], buf), expected);
+    }
+
+    #[test_case(b"live_tok_1234", &[m(LONG_PREFIX_ID, 0, 13)] ; "embedded_anchor_is_not_a_hit")]
+    #[test_case(b"live_tok_1234 tok_5678", &[m(LONG_PREFIX_ID, 0, 13), m(PREFIX_ID, 14, 22)] ; "shorter_anchor_still_hits_elsewhere")]
+    fn overlapping_anchors_resolve_to_leftmost_longest(buf: &[u8], expected: &[Match]) {
+        assert_eq!(scan(&[UNBOUNDED_PREFIX, LONG_PREFIX], buf), expected);
     }
 
     #[test]
