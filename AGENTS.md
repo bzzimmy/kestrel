@@ -30,6 +30,11 @@ Kestrel is a lightweight, high-throughput secret scanner for high-impact credent
 - In tests, const error/status messages and assert against the shared constant
 - Add `#[derive(Copy)]` only on structs with 1 primitive field
 
+## Linting
+
+- Lints are configured in `Cargo.toml` under `[lints]`; run `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` before committing
+- Prefer fixing over suppressing; when suppressing, use `#[expect(lint, reason = "...")]` scoped as narrowly as possible, never crate-wide `#[allow]`
+
 ## Commits
 
 - No conventional commits; messages are concise and focused, with bullet points only when needed
