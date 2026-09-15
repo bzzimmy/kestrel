@@ -1,27 +1,55 @@
 mod matcher;
+mod output;
 mod rules;
 mod scan;
 
-use std::env;
-use std::io::{self, Write};
-use std::path::Path;
+use std::io::{self, BufWriter};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 
 use crate::matcher::Matcher;
+use crate::output::JsonLines;
 use crate::rules::RULES;
-use crate::scan::{Finding, Options, scan_dir};
+use crate::scan::{Options, scan_dir};
 
-const USAGE: &str = "usage: kestrel <dir>";
 const BYTES_PER_MB: f64 = 1e6;
+const STDOUT_BUFFER: usize = 1 << 16;
+
+/// Ultra-lightweight secret scanner. Walks a directory tree and emits one
+/// JSON object per finding to stdout.
+#[derive(Parser)]
+#[command(version, about)]
+struct Cli {
+    /// Directory to scan recursively
+    dir: PathBuf,
+
+    /// Worker threads (default: available cores)
+    #[arg(short, long, value_name = "N")]
+    threads: Option<usize>,
+
+    /// Skip files larger than this many bytes
+    #[arg(long, value_name = "BYTES")]
+    max_file_size: Option<u64>,
+}
 
 fn main() -> Result<()> {
-    let root = env::args_os().nth(1).context(USAGE)?;
-    let matcher = Matcher::new(RULES)?;
+    let cli = Cli::parse();
+    let matcher = Matcher::new(RULES).context("failed to compile rules")?;
+    let options = Options {
+        max_file_size: cli.max_file_size,
+        threads: cli.threads,
+    };
+    let output = JsonLines::new(BufWriter::with_capacity(STDOUT_BUFFER, io::stdout()));
     let started = Instant::now();
-    let stats = scan_dir(Path::new(&root), &matcher, &Options::default(), emit)?;
+    let stats = scan_dir(&cli.dir, &matcher, &options, |finding| {
+        output.write(finding);
+    })
+    .with_context(|| format!("failed to scan {}", cli.dir.display()))?;
     let elapsed = started.elapsed();
+    output.finish().context("failed to flush findings")?;
     #[expect(
         clippy::cast_precision_loss,
         reason = "throughput is a log figure; byte counts never approach 2^52"
@@ -37,17 +65,4 @@ fn main() -> Result<()> {
         stats.findings,
     );
     Ok(())
-}
-
-fn emit(finding: &Finding<'_>) {
-    if let Err(err) = writeln!(
-        io::stdout(),
-        "{}\t{}\t{}\t{}",
-        finding.path.display(),
-        finding.rule_id,
-        finding.start,
-        String::from_utf8_lossy(finding.secret)
-    ) {
-        eprintln!("kestrel: failed to write finding: {err}");
-    }
 }
