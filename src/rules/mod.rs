@@ -1,11 +1,12 @@
-/// Pattern for a keyword-gated rule: `keywords`, a bounded gap, `=`/`:`
-/// (or `=>`), optional quote, then `value` as capture group 1 followed by
-/// a character outside `charset` (a character class body) or end of input.
+/// Pattern for a keyword-gated rule: `keywords`, a bounded gap, a separator
+/// (`=`, `:`, `=>` or whitespace, as in CLI usage lines), optional quote,
+/// then `value` as capture group 1 followed by a character outside
+/// `charset` (a character class body) or end of input.
 macro_rules! keyword_gated {
     ($keywords:literal, $value:literal, $charset:literal) => {
         concat!(
             $keywords,
-            r#"[^\n=:]{0,16}[=:]>?\s{0,8}["'`]?("#,
+            r#"[^\n=:]{0,16}(?:[=:]>?|\s)\s{0,8}["'`]?("#,
             $value,
             ")(?:[^",
             $charset,

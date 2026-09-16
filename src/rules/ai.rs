@@ -231,6 +231,7 @@ mod tests {
     #[test_case(&format!("DEEPSEEK_API_KEY=sk-{HEX32}"), DEEPSEEK, &format!("sk-{HEX32}") ; "deepseek_env")]
     #[test_case(&format!("deepseek_api_key: \"sk-{HEX32}\""), DEEPSEEK, &format!("sk-{HEX32}") ; "deepseek_yaml")]
     #[test_case(&format!("new DeepSeek({{ apiKey: 'sk-{HEX32}' }})"), DEEPSEEK, &format!("sk-{HEX32}") ; "deepseek_constructor")]
+    #[test_case(&format!("  nexuscli api set deepseek sk-{HEX32}\\n"), DEEPSEEK, &format!("sk-{HEX32}") ; "deepseek_cli_usage")]
     fn single_match(buf: &str, rule_id: &'static str, secret: &str) {
         assert_eq!(scan(buf.as_bytes()), [(rule_id, secret.as_bytes())]);
     }
