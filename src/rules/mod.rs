@@ -16,7 +16,9 @@ macro_rules! keyword_gated {
     };
 }
 
+mod ai;
 mod cloud;
+mod infra;
 mod saas;
 mod vcs;
 
@@ -27,7 +29,13 @@ pub struct Rule {
     pub verify: Option<fn(&[u8]) -> bool>,
 }
 
-const RULE_SETS: &[&[Rule]] = &[vcs::RULES, cloud::RULES, saas::RULES];
+const RULE_SETS: &[&[Rule]] = &[
+    vcs::RULES,
+    cloud::RULES,
+    infra::RULES,
+    saas::RULES,
+    ai::RULES,
+];
 
 pub fn all() -> impl Iterator<Item = &'static Rule> {
     RULE_SETS.iter().copied().flatten()
