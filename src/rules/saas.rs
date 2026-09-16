@@ -136,8 +136,8 @@ pub const RULES: &[Rule] = &[
         anchors: &["AUTH0_CLIENT_SECRET", "auth0", "Auth0"],
         pattern: keyword_gated!(
             r"(?:AUTH0_CLIENT_SECRET|[aA]uth0[^\n]{0,32}?(?:client_secret|clientSecret))",
-            "A-Za-z0-9_-",
-            "{64,128}"
+            "[A-Za-z0-9_-]{64,128}",
+            "A-Za-z0-9_-"
         ),
         verify: None,
     },

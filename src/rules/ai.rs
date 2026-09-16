@@ -56,6 +56,62 @@ pub const RULES: &[Rule] = &[
         verify: None,
     },
     Rule {
+        id: "together-key",
+        anchors: &["TOGETHER_API_KEY", "together", "Together"],
+        pattern: keyword_gated!(
+            "(?:TOGETHER_API_KEY|[tT]ogether)",
+            "key_[A-Za-z0-9]{22}",
+            "A-Za-z0-9_"
+        ),
+        verify: None,
+    },
+    Rule {
+        id: "fireworks-api-key",
+        anchors: &["fw_"],
+        pattern: r"\bfw_[A-Za-z0-9]{22}\b",
+        verify: None,
+    },
+    Rule {
+        id: "baseten-api-key",
+        anchors: &["BASETEN_API_KEY", "baseten", "Baseten"],
+        pattern: keyword_gated!(
+            "(?:BASETEN_API_KEY|[bB]aseten)",
+            r"[A-Za-z0-9]{8}\.[A-Za-z0-9]{32}",
+            "A-Za-z0-9."
+        ),
+        verify: None,
+    },
+    Rule {
+        id: "morph-api-key",
+        anchors: &["MORPH_API_KEY", "morph", "Morph"],
+        pattern: keyword_gated!(
+            "(?:MORPH_API_KEY|[mM]orph)",
+            "sk-[A-Za-z0-9_-]{48}",
+            "A-Za-z0-9_-"
+        ),
+        verify: None,
+    },
+    Rule {
+        id: "novita-api-key",
+        anchors: &["NOVITA_API_KEY", "novita", "Novita"],
+        pattern: keyword_gated!(
+            "(?:NOVITA_API_KEY|[nN]ovita)",
+            "sk_[A-Za-z0-9_-]{43}",
+            "A-Za-z0-9_-"
+        ),
+        verify: None,
+    },
+    Rule {
+        id: "deepinfra-api-key",
+        anchors: &["DEEPINFRA_API_KEY", "deepinfra", "DeepInfra"],
+        pattern: keyword_gated!(
+            "(?:DEEPINFRA_API_KEY|deepinfra|DeepInfra)",
+            "[A-Za-z0-9]{32}",
+            "A-Za-z0-9"
+        ),
+        verify: None,
+    },
+    Rule {
         id: "cerebras-api-key",
         anchors: &["csk-"],
         pattern: r"\bcsk-[a-z0-9]{48}\b",
@@ -82,7 +138,11 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "deepseek-api-key",
         anchors: &["deepseek", "DeepSeek", "DEEPSEEK_API_KEY"],
-        pattern: r#"(?:deepseek|DeepSeek|DEEPSEEK_API_KEY)[^\n=:]{0,16}[=:]>?\s{0,8}["'`]?(sk-[a-f0-9]{32})(?:[^A-Za-z0-9_-]|\z)"#,
+        pattern: keyword_gated!(
+            "(?:deepseek|DeepSeek|DEEPSEEK_API_KEY)",
+            "sk-[a-f0-9]{32}",
+            "A-Za-z0-9_-"
+        ),
         verify: None,
     },
 ];
@@ -102,6 +162,12 @@ mod tests {
     const PERPLEXITY: &str = "perplexity-api-key";
     const REPLICATE: &str = "replicate-api-token";
     const TOGETHER: &str = "together-api-key";
+    const TOGETHER_KEY: &str = "together-key";
+    const FIREWORKS: &str = "fireworks-api-key";
+    const BASETEN: &str = "baseten-api-key";
+    const MORPH: &str = "morph-api-key";
+    const NOVITA: &str = "novita-api-key";
+    const DEEPINFRA: &str = "deepinfra-api-key";
     const CEREBRAS: &str = "cerebras-api-key";
     const RUNPOD: &str = "runpod-api-key";
     const ELEVENLABS: &str = "elevenlabs-api-key";
@@ -118,6 +184,12 @@ mod tests {
     const HF_KEY: &str = "hf_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGh";
     const CSK_KEY: &str = "csk-abcdefghijklmnopqrstuvwxyz0123456789abcdefghijkl";
     const RPA_KEY: &str = "rpa_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDaBcD12";
+    const TOGETHER_KEY_VALUE: &str = "key_AbCdEfGhIjKlMnOpQrStUv";
+    const FW_KEY: &str = "fw_AbCdEfGhIjKlMnOpQrStUv";
+    const BASETEN_KEY: &str = "AbCd1234.AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+    const MORPH_KEY: &str = "sk-AbCdEf_GhIjKlMnOpQrStUv-WxYz0123456789AbCdEfGh_I";
+    const NOVITA_KEY: &str = "sk_AbCdEfGhIj-KlMnOpQrStUvWxYz_0123456789-AbCd";
+    const DEEPINFRA_KEY: &str = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
 
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
         crate::rules::scan(RULES, buf)
@@ -141,6 +213,17 @@ mod tests {
     #[test_case(&format!("{{\"key\": \"{PPLX_KEY}\"}}"), PERPLEXITY, PPLX_KEY ; "perplexity")]
     #[test_case(&format!("REPLICATE_API_TOKEN={R8_KEY}"), REPLICATE, R8_KEY ; "replicate")]
     #[test_case(&format!("tgp_v1_{}", repeat(b'a', 43)), TOGETHER, &format!("tgp_v1_{}", repeat(b'a', 43)) ; "together")]
+    #[test_case(&format!("TOGETHER_API_KEY={TOGETHER_KEY_VALUE}"), TOGETHER_KEY, TOGETHER_KEY_VALUE ; "together_key_env")]
+    #[test_case(&format!("new Together({{ apiKey: '{TOGETHER_KEY_VALUE}' }})"), TOGETHER_KEY, TOGETHER_KEY_VALUE ; "together_key_constructor")]
+    #[test_case(&format!("FIREWORKS_API_KEY={FW_KEY}"), FIREWORKS, FW_KEY ; "fireworks")]
+    #[test_case(&format!("BASETEN_API_KEY={BASETEN_KEY}"), BASETEN, BASETEN_KEY ; "baseten_env")]
+    #[test_case(&format!("baseten_api_key: \"{BASETEN_KEY}\""), BASETEN, BASETEN_KEY ; "baseten_yaml")]
+    #[test_case(&format!("MORPH_API_KEY={MORPH_KEY}"), MORPH, MORPH_KEY ; "morph_env")]
+    #[test_case(&format!("new MorphClient({{ apiKey: '{MORPH_KEY}' }})"), MORPH, MORPH_KEY ; "morph_constructor")]
+    #[test_case(&format!("NOVITA_API_KEY={NOVITA_KEY}"), NOVITA, NOVITA_KEY ; "novita_env")]
+    #[test_case(&format!("novita_api_key: \"{NOVITA_KEY}\""), NOVITA, NOVITA_KEY ; "novita_yaml")]
+    #[test_case(&format!("DEEPINFRA_API_KEY={DEEPINFRA_KEY}"), DEEPINFRA, DEEPINFRA_KEY ; "deepinfra_env")]
+    #[test_case(&format!("DeepInfra(api_key=\"{DEEPINFRA_KEY}\")"), DEEPINFRA, DEEPINFRA_KEY ; "deepinfra_constructor")]
     #[test_case(&format!("CEREBRAS_API_KEY={CSK_KEY}"), CEREBRAS, CSK_KEY ; "cerebras")]
     #[test_case(&format!("runpod.api_key = \"{RPA_KEY}\""), RUNPOD, RPA_KEY ; "runpod")]
     #[test_case(&format!("xi-api-key: sk_{HEX48}"), ELEVENLABS, &format!("sk_{HEX48}") ; "elevenlabs")]
@@ -167,6 +250,24 @@ mod tests {
     #[test_case("pplx-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" ; "perplexity_too_short")]
     #[test_case("r8_AbCdEfGhIjKlMnOpQrStUvWxYz01234567" ; "replicate_too_short")]
     #[test_case(&format!("tgp_v1_{}", repeat(b'a', 42)) ; "together_too_short")]
+    #[test_case("key_AbCdEfGhIjKlMnOpQrStUv" ; "together_key_no_keyword")]
+    #[test_case("TOGETHER_API_KEY=key_AbCdEfGhIjKlMnOpQrStU" ; "together_key_too_short")]
+    #[test_case("TOGETHER_API_KEY=key_AbCdEfGhIjKlMnOpQrStUvW" ; "together_key_too_long")]
+    #[test_case("TOGETHER_API_KEY=process.env.TOGETHER_API_KEY" ; "together_key_env_reference")]
+    #[test_case("fw_AbCdEfGhIjKlMnOpQrStU" ; "fireworks_too_short")]
+    #[test_case("fw_AbCdEfGhIjKlMnOpQrStUvW" ; "fireworks_too_long")]
+    #[test_case("AbCd1234.AbCdEfGhIjKlMnOpQrStUvWxYz012345" ; "baseten_no_keyword")]
+    #[test_case("BASETEN_API_KEY=AbCd1234AbCdEfGhIjKlMnOpQrStUvWxYz012345" ; "baseten_missing_dot")]
+    #[test_case("BASETEN_API_KEY=AbCd1234.AbCdEfGhIjKlMnOpQrStUvWxYz0123456" ; "baseten_too_long")]
+    #[test_case("sk-AbCdEf_GhIjKlMnOpQrStUv-WxYz0123456789AbCdEfGh_I" ; "morph_no_keyword")]
+    #[test_case("MORPH_API_KEY=sk-AbCdEf_GhIjKlMnOpQrStUv-WxYz0123456789AbCdEfGh_" ; "morph_too_short")]
+    #[test_case("polymorphic_key = 'sk-short'" ; "morph_inside_word_short_value")]
+    #[test_case("sk_AbCdEfGhIj-KlMnOpQrStUvWxYz_0123456789-AbCd" ; "novita_no_keyword")]
+    #[test_case("NOVITA_API_KEY=sk_AbCdEfGhIj-KlMnOpQrStUvWxYz_0123456789-AbC" ; "novita_too_short")]
+    #[test_case("NOVITA_API_KEY=sk_AbCdEfGhIj-KlMnOpQrStUvWxYz_0123456789-AbCdE" ; "novita_too_long")]
+    #[test_case("AbCdEfGhIjKlMnOpQrStUvWxYz012345" ; "deepinfra_no_keyword")]
+    #[test_case("DEEPINFRA_API_KEY=AbCdEfGhIjKlMnOpQrStUvWxYz01234" ; "deepinfra_too_short")]
+    #[test_case("deepinfra_model = \"meta-llama/Llama-3-70b-instruct\"" ; "deepinfra_model_name")]
     #[test_case("csk-abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk" ; "cerebras_too_short")]
     #[test_case("csk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKL" ; "cerebras_uppercase")]
     #[test_case("rpa_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDaBcD1" ; "runpod_too_short")]

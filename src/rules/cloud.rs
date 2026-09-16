@@ -27,8 +27,8 @@ pub const RULES: &[Rule] = &[
         ],
         pattern: keyword_gated!(
             "(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY|secretAccessKey)",
-            "A-Za-z0-9/+",
-            "{40}"
+            "[A-Za-z0-9/+]{40}",
+            "A-Za-z0-9/+"
         ),
         verify: None,
     },
@@ -86,8 +86,8 @@ pub const RULES: &[Rule] = &[
         anchors: &["CLOUDFLARE_API_TOKEN", "CF_API_TOKEN"],
         pattern: keyword_gated!(
             "(?:CLOUDFLARE_API_TOKEN|CF_API_TOKEN)",
-            "A-Za-z0-9_-",
-            "{40}"
+            "[A-Za-z0-9_-]{40}",
+            "A-Za-z0-9_-"
         ),
         verify: None,
     },
