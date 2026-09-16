@@ -12,7 +12,6 @@ use clap::Parser;
 
 use crate::matcher::Matcher;
 use crate::output::JsonLines;
-use crate::rules::RULES;
 use crate::scan::{Options, scan_dir};
 
 const BYTES_PER_MB: f64 = 1e6;
@@ -37,7 +36,7 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let matcher = Matcher::new(RULES).context("failed to compile rules")?;
+    let matcher = Matcher::new(rules::all()).context("failed to compile rules")?;
     let options = Options {
         max_file_size: cli.max_file_size,
         threads: cli.threads,

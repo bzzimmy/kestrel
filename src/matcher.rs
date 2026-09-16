@@ -46,10 +46,11 @@ struct CompiledRule {
 }
 
 impl Matcher {
-    pub fn new(rules: &[Rule]) -> Result<Self, BuildError> {
+    pub fn new<'r>(rules: impl IntoIterator<Item = &'r Rule>) -> Result<Self, BuildError> {
+        let rules: Vec<&Rule> = rules.into_iter().collect();
         let compiled = rules
             .iter()
-            .map(CompiledRule::new)
+            .map(|rule| CompiledRule::new(rule))
             .collect::<Result<Vec<_>, _>>()?;
         let rule_of_pattern = rules
             .iter()

@@ -1,17 +1,6 @@
-pub struct Rule {
-    pub id: &'static str,
-    pub anchors: &'static [&'static str],
-    pub pattern: &'static str,
-    pub verify: Option<fn(&[u8]) -> bool>,
-}
+use crate::rules::Rule;
 
 pub const RULES: &[Rule] = &[
-    Rule {
-        id: "github-token",
-        anchors: &["ghp_", "gho_", "ghu_", "ghs_", "ghr_"],
-        pattern: r"\bgh[oprsu]_[A-Za-z0-9]{36}\b",
-        verify: None,
-    },
     Rule {
         id: "aws-access-key",
         anchors: &["AKIA", "ASIA"],
@@ -43,12 +32,10 @@ mod tests {
     use super::RULES;
     use crate::matcher::Matcher;
 
-    const GITHUB: &str = "github-token";
     const AWS_ACCESS: &str = "aws-access-key";
     const AWS_SECRET: &str = "aws-secret-key";
     const PRIVATE_KEY: &str = "private-key";
 
-    const GHP: &[u8] = b"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const AKIA: &[u8] = b"AKIAIOSFODNN7EXAMPLE";
     const ASIA: &[u8] = b"ASIAIOSFODNN7EXAMPLE";
     const AWS_SECRET_VALUE: &[u8] = b"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
@@ -57,18 +44,16 @@ mod tests {
 
     #[expect(
         clippy::expect_used,
-        reason = "a seed rule that fails to compile is a rule bug"
+        reason = "a rule that fails to compile is a rule bug"
     )]
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
-        let matcher = Matcher::new(RULES).expect("seed rules must compile");
+        let matcher = Matcher::new(RULES).expect("rules must compile");
         matcher
             .scan(buf)
             .map(|m| (m.rule_id, &buf[m.start..m.end]))
             .collect()
     }
 
-    #[test_case(b"token = \"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"", GITHUB, GHP ; "github_quoted")]
-    #[test_case(b"https://gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@github.com", GITHUB, b"gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ; "github_oauth_in_url")]
     #[test_case(b"AKIAIOSFODNN7EXAMPLE", AWS_ACCESS, AKIA ; "aws_access_bare")]
     #[test_case(b"key: ASIAIOSFODNN7EXAMPLE\n", AWS_ACCESS, ASIA ; "aws_access_session_anchor")]
     #[test_case(b"aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n", AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_ini")]
@@ -82,10 +67,6 @@ mod tests {
         assert_eq!(scan(buf), [(rule_id, secret)]);
     }
 
-    #[test_case(b"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678" ; "github_too_short")]
-    #[test_case(b"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789A" ; "github_too_long")]
-    #[test_case(b"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123-56789" ; "github_bad_charset")]
-    #[test_case(b"ghx_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ; "github_unknown_prefix")]
     #[test_case(b"AKIAIOSFODNN7EXAMPL" ; "aws_access_too_short")]
     #[test_case(b"AKIAIOSFODNN7EXAMPLE1" ; "aws_access_too_long")]
     #[test_case(b"AKIAiosfodnn7example" ; "aws_access_lowercase")]
@@ -104,15 +85,10 @@ mod tests {
 
     #[test]
     fn reports_every_occurrence_in_order() {
-        let buf = [GHP, b"\n", AKIA, b"\n", ASIA, b"\n", GHP].concat();
+        let buf = [AKIA, b"\n", ASIA, b"\n", AKIA].concat();
         assert_eq!(
             scan(&buf),
-            [
-                (GITHUB, GHP),
-                (AWS_ACCESS, AKIA),
-                (AWS_ACCESS, ASIA),
-                (GITHUB, GHP)
-            ]
+            [(AWS_ACCESS, AKIA), (AWS_ACCESS, ASIA), (AWS_ACCESS, AKIA)]
         );
     }
 }
