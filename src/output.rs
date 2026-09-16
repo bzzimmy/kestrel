@@ -21,6 +21,7 @@ pub struct JsonLines<W> {
 struct Record<'a> {
     path: &'a str,
     offset: usize,
+    line: usize,
     rule: &'static str,
     secret: &'a str,
     redacted: Redacted<'a>,
@@ -41,6 +42,7 @@ impl<W: Write> JsonLines<W> {
         let record = Record {
             path: &path,
             offset: finding.start,
+            line: finding.line,
             rule: finding.rule_id,
             secret: &secret,
             redacted: Redacted(&secret),
@@ -124,6 +126,7 @@ mod tests {
             path,
             rule_id: RULE_ID,
             start,
+            line: 1,
             secret,
         }
     }
@@ -167,6 +170,7 @@ mod tests {
                 json!({
                     "path": "pkg@1.0.0/index.js",
                     "offset": 7,
+                    "line": 1,
                     "rule": RULE_ID,
                     "secret": "tok_1234567890",
                     "redacted": "tok_...7890",
@@ -174,6 +178,7 @@ mod tests {
                 json!({
                     "path": "pkg@1.0.0/index.js",
                     "offset": 42,
+                    "line": 1,
                     "rule": RULE_ID,
                     "secret": "tok_0987654321",
                     "redacted": "tok_...4321",

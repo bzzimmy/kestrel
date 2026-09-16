@@ -4,6 +4,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use memchr::memchr_iter;
 use memmap2::MmapOptions;
 use rayon::{Scope, ThreadPoolBuildError, ThreadPoolBuilder};
 use thiserror::Error;
@@ -46,6 +47,8 @@ pub struct Finding<'a> {
     pub path: &'a Path,
     pub rule_id: &'static str,
     pub start: usize,
+    /// 1-based line containing `start`.
+    pub line: usize,
     pub secret: &'a [u8],
 }
 
@@ -183,11 +186,20 @@ impl<F: Fn(&Finding<'_>) + Sync> Scanner<'_, F> {
 
     fn scan_buf(&self, path: &Path, buf: &[u8]) -> u64 {
         let mut count = 0;
+        let mut line = 1;
+        let mut counted_to = 0;
         for m in self.matcher.scan(buf) {
+            if m.start < counted_to {
+                line = 1;
+                counted_to = 0;
+            }
+            line += memchr_iter(b'\n', &buf[counted_to..m.start]).count();
+            counted_to = m.start;
             (self.sink)(&Finding {
                 path,
                 rule_id: m.rule_id,
                 start: m.start,
+                line,
                 secret: &buf[m.start..m.end],
             });
             count += 1;

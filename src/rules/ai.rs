@@ -16,7 +16,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "openrouter-api-key",
         anchors: &["sk-or-v1-"],
-        pattern: r"\bsk-or-v1-[a-f0-9]{64}\b",
+        pattern: r"\bsk-or-v1-[a-f0-9]{64}",
         verify: None,
     },
     Rule {
@@ -28,7 +28,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "groq-api-key",
         anchors: &["gsk_"],
-        pattern: r"\bgsk_[A-Za-z0-9]{52}\b",
+        pattern: r"\bgsk_[A-Za-z0-9]{52}",
         verify: None,
     },
     Rule {
@@ -40,7 +40,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "perplexity-api-key",
         anchors: &["pplx-"],
-        pattern: r"\bpplx-[A-Za-z0-9]{48}\b",
+        pattern: r"\bpplx-[A-Za-z0-9]{48}",
         verify: None,
     },
     Rule {
@@ -114,13 +114,13 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "cerebras-api-key",
         anchors: &["csk-"],
-        pattern: r"\bcsk-[a-z0-9]{48}\b",
+        pattern: r"\bcsk-[a-z0-9]{48}",
         verify: None,
     },
     Rule {
         id: "runpod-api-key",
         anchors: &["rpa_"],
-        pattern: r"\brpa_[A-Z0-9]{40}[A-Za-z0-9]{6}\b",
+        pattern: r"\brpa_[A-Z0-9]{40}[A-Za-z0-9]{6}",
         verify: None,
     },
     Rule {

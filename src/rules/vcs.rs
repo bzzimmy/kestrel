@@ -4,7 +4,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "github-token",
         anchors: &["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"],
-        pattern: r"\b(?:gh[oprsu]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82})\b",
+        pattern: r"\b(?:gh[oprsu]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82})",
         verify: None,
     },
     Rule {
@@ -25,13 +25,13 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "circleci-token",
         anchors: &["CCIPAT_", "CCIPRJ_"],
-        pattern: r"\bCCIP(?:AT|RJ)_[A-Za-z0-9]{22}_[a-f0-9]{40}\b",
+        pattern: r"\bCCIP(?:AT|RJ)_[A-Za-z0-9]{22}_[a-f0-9]{40}",
         verify: None,
     },
     Rule {
         id: "npm-token",
         anchors: &["npm_"],
-        pattern: r"\bnpm_[A-Za-z0-9]{36}\b",
+        pattern: r"\bnpm_[A-Za-z0-9]{36}",
         verify: None,
     },
     Rule {
@@ -43,7 +43,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "rubygems-token",
         anchors: &["rubygems_"],
-        pattern: r"\brubygems_[a-f0-9]{48}\b",
+        pattern: r"\brubygems_[a-f0-9]{48}",
         verify: None,
     },
     Rule {
@@ -111,6 +111,7 @@ mod tests {
 
     #[test_case(&format!("token = \"{GHP}\""), GITHUB, GHP ; "github_quoted")]
     #[test_case("https://gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@github.com", GITHUB, "gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ; "github_oauth_in_url")]
+    #[test_case("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789GITHUB_BRANCH", GITHUB, GHP ; "github_glued_to_following_word")]
     #[test_case(&format!("github_pat_{}_{}", repeat(b'A', 22), repeat(b'b', 59)), GITHUB, &format!("github_pat_{}_{}", repeat(b'A', 22), repeat(b'b', 59)) ; "github_fine_grained_pat")]
     #[test_case(&format!("PRIVATE-TOKEN: {GLPAT}\n"), GITLAB, GLPAT ; "gitlab_pat_legacy")]
     #[test_case(GLPAT_ROUTABLE, GITLAB, GLPAT_ROUTABLE ; "gitlab_pat_routable")]
@@ -143,7 +144,6 @@ mod tests {
     }
 
     #[test_case("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678" ; "github_too_short")]
-    #[test_case("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789A" ; "github_too_long")]
     #[test_case("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123-56789" ; "github_bad_charset")]
     #[test_case("ghx_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ; "github_unknown_prefix")]
     #[test_case(&format!("github_pat_{}", repeat(b'A', 81)) ; "github_fine_grained_too_short")]

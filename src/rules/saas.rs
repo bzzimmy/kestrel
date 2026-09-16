@@ -32,7 +32,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "slack-app-token",
         anchors: &["xapp-"],
-        pattern: r"\bxapp-[0-9]-[A-Z0-9]{10,13}-[0-9]{10,13}-[a-f0-9]{64}\b",
+        pattern: r"\bxapp-[0-9]-[A-Z0-9]{10,13}-[0-9]{10,13}-[a-f0-9]{64}",
         verify: None,
     },
     Rule {
@@ -74,7 +74,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "shopify-token",
         anchors: &["shpat_", "shppa_", "shpca_", "shpss_"],
-        pattern: r"\bshp(?:at|pa|ca|ss)_[a-fA-F0-9]{32}\b",
+        pattern: r"\bshp(?:at|pa|ca|ss)_[a-fA-F0-9]{32}",
         verify: None,
     },
     Rule {
@@ -86,13 +86,13 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "braintree-access-token",
         anchors: &["access_token$production$"],
-        pattern: r"\baccess_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}\b",
+        pattern: r"\baccess_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}",
         verify: None,
     },
     Rule {
         id: "plaid-access-token",
         anchors: &["access-production-"],
-        pattern: r"\baccess-production-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        pattern: r"\baccess-production-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         verify: None,
     },
     Rule {
@@ -110,7 +110,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "hubspot-token",
         anchors: &["pat-na1-", "pat-na2-", "pat-eu1-"],
-        pattern: r"\bpat-(?:na[12]|eu1)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        pattern: r"\bpat-(?:na[12]|eu1)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         verify: None,
     },
     Rule {

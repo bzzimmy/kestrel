@@ -1,6 +1,8 @@
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use regex::bytes::{Regex, RegexBuilder};
-use regex_syntax::Parser;
+use regex_syntax::ParserBuilder;
+use regex_syntax::hir::literal::{ExtractKind, Extractor};
+use regex_syntax::hir::{Hir, Look};
 use thiserror::Error;
 
 use crate::rules::Rule;
@@ -44,6 +46,10 @@ struct CompiledRule {
     id: &'static str,
     regex: Regex,
     window: usize,
+    /// True when the pattern starts with `\b` and every anchor is a literal
+    /// prefix of it, so a hit whose preceding byte is in the same word class
+    /// as its first byte can be rejected without running the regex.
+    boundary_prefix: bool,
     verify: Option<fn(&[u8]) -> bool>,
 }
 
@@ -108,15 +114,22 @@ impl CompiledRule {
         if regex.is_match(b"") {
             return Err(BuildError::EmptyPattern { rule: rule.id });
         }
-        let window = Parser::new()
+        let hir = ParserBuilder::new()
+            .unicode(false)
+            .utf8(false)
+            .build()
             .parse(rule.pattern)
-            .ok()
+            .ok();
+        let window = hir
+            .as_ref()
             .and_then(|hir| hir.properties().maximum_len())
             .unwrap_or(UNBOUNDED_WINDOW);
         Ok(Self {
             id: rule.id,
             regex,
             window,
+            boundary_prefix: hir
+                .is_some_and(|hir| anchors_are_boundary_prefixes(&hir, rule.anchors)),
             verify: rule.verify,
         })
     }
@@ -128,6 +141,9 @@ impl CompiledRule {
     /// window is the pattern's maximum match length on each side, so a
     /// match covering the hit can never be cut off.
     fn confirm(&self, buf: &[u8], hit: usize) -> Option<(usize, usize)> {
+        if self.boundary_prefix && hit > 0 && is_word_byte(buf[hit - 1]) == is_word_byte(buf[hit]) {
+            return None;
+        }
         let lo = hit.saturating_sub(self.window);
         let hi = buf.len().min(hit + self.window + BOUNDARY_SLACK);
         let window = &buf[lo..hi];
@@ -148,11 +164,38 @@ impl CompiledRule {
     }
 }
 
+/// True if the pattern must start at a word boundary and each anchor is one
+/// of its literal prefixes (or extends one), i.e. the anchor hit is where the
+/// match would start.
+fn anchors_are_boundary_prefixes(hir: &Hir, anchors: &[&str]) -> bool {
+    if !hir.properties().look_set_prefix().contains(Look::WordAscii) {
+        return false;
+    }
+    let prefixes = Extractor::new().kind(ExtractKind::Prefix).extract(hir);
+    let Some(literals) = prefixes.literals() else {
+        return false;
+    };
+    anchors.iter().all(|anchor| {
+        literals.iter().any(|literal| {
+            let (short, long) = if literal.len() <= anchor.len() {
+                (literal.as_bytes(), anchor.as_bytes())
+            } else {
+                (anchor.as_bytes(), literal.as_bytes())
+            };
+            !short.is_empty() && long.starts_with(short)
+        })
+    })
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
 
-    use super::{BuildError, Match, Matcher, UNBOUNDED_WINDOW};
+    use super::{BuildError, CompiledRule, Match, Matcher, UNBOUNDED_WINDOW};
     use crate::rules::Rule;
 
     const PREFIX_ID: &str = "prefix";
@@ -338,5 +381,26 @@ mod tests {
             Matcher::new(&[rule]),
             Err(BuildError::EmptyPattern { rule: PREFIX_ID })
         ));
+    }
+
+    #[test_case(&PREFIX, true ; "boundary_then_literal")]
+    #[test_case(&UNBOUNDED_PREFIX, false ; "no_boundary")]
+    #[test_case(&KEYWORD, false ; "keyword_without_boundary")]
+    #[test_case(&Rule { pattern: r"\b(?:tok_|live_tok_)[0-9]{4}", ..PREFIX }, true ; "anchor_among_alternates")]
+    #[test_case(&Rule { anchors: &["_tok_"], pattern: r"\b[a-z]{4}_tok_[0-9]{4}", ..PREFIX }, false ; "anchor_mid_pattern")]
+    fn boundary_prefix_is_detected(rule: &Rule, expected: bool) {
+        assert_eq!(
+            CompiledRule::new(rule)
+                .map(|compiled| compiled.boundary_prefix)
+                .ok(),
+            Some(expected)
+        );
+    }
+
+    #[test_case(b"xtok_1234" ; "preceded_by_letter")]
+    #[test_case(b"_tok_1234" ; "preceded_by_underscore")]
+    #[test_case(b"9tok_1234" ; "preceded_by_digit")]
+    fn boundary_prefix_rejects_hit_inside_word(buf: &[u8]) {
+        assert_eq!(scan(&[PREFIX], buf), []);
     }
 }

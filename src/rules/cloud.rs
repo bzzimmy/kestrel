@@ -4,6 +4,8 @@ use crate::rules::Rule;
 const AZURITE_ACCOUNT_KEY: &[u8] =
     b"Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
 const SCHEME_SEPARATOR: &[u8] = b"://";
+/// Marker AWS uses in every documentation credential (`AKIAIOSFODNN7EXAMPLE`).
+const AWS_EXAMPLE_MARKER: &[u8] = b"EXAMPLE";
 /// Host fragments (ASCII case-insensitive) that mark a placeholder host.
 const PLACEHOLDER_HOSTS: &[&[u8]] = &[b"localhost", b"127.", b"0.0.0.0", b"example", b"<"];
 /// Whole passwords (ASCII case-insensitive) that are placeholders.
@@ -16,7 +18,7 @@ pub const RULES: &[Rule] = &[
         id: "aws-access-key",
         anchors: &["AKIA", "ASIA", "ABIA", "ACCA"],
         pattern: r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}\b",
-        verify: None,
+        verify: Some(is_not_aws_example),
     },
     Rule {
         id: "aws-secret-key",
@@ -30,7 +32,7 @@ pub const RULES: &[Rule] = &[
             "[A-Za-z0-9/+]{40}",
             "A-Za-z0-9/+"
         ),
-        verify: None,
+        verify: Some(is_not_aws_example),
     },
     Rule {
         id: "aws-bedrock-api-key",
@@ -72,7 +74,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "digitalocean-token",
         anchors: &["dop_v1_", "doo_v1_", "dor_v1_"],
-        pattern: r"\bdo[opr]_v1_[a-f0-9]{64}\b",
+        pattern: r"\bdo[opr]_v1_[a-f0-9]{64}",
         verify: None,
     },
     Rule {
@@ -152,10 +154,16 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "private-key",
         anchors: &["-----BEGIN", "PRIVATE KEY-----"],
-        pattern: r"-----BEGIN[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----",
+        pattern: r"-----BEGIN[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----[A-Za-z0-9+/=\s:,.\\-]{64,}?-----END[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----",
         verify: None,
     },
 ];
+
+fn is_not_aws_example(secret: &[u8]) -> bool {
+    !secret
+        .windows(AWS_EXAMPLE_MARKER.len())
+        .any(|window| window == AWS_EXAMPLE_MARKER)
+}
 
 fn is_not_azurite_key(secret: &[u8]) -> bool {
     secret != AZURITE_ACCOUNT_KEY
@@ -230,9 +238,12 @@ mod tests {
     const PRIVATE_KEY: &str = "private-key";
 
     const HEX64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    const AKIA: &str = "AKIAIOSFODNN7EXAMPLE";
-    const ASIA: &str = "ASIAIOSFODNN7EXAMPLE";
-    const AWS_SECRET_VALUE: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+    /// Fixtures are assembled from pieces so no scanner sees a whole key
+    /// in source; the AWS documentation examples are rejected on purpose.
+    const AWS_KEY_BODY: &str = "JQ7ZX4KYN3T2A5UB";
+    const AKIA: &str = concat!("AKIA", "JQ7ZX4KYN3T2A5UB");
+    const ASIA: &str = concat!("ASIA", "JQ7ZX4KYN3T2A5UB");
+    const AWS_SECRET_VALUE: &str = concat!("wJalrXUtnFEMI/K7MDENG/", "bPxRfiCYq8R2mLpT1v");
     const BEDROCK_SHORT_LIVED: &str =
         "bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29tP0FjdGlvbj1DYWxsV2l0aEJlYXJlclRva2Vu";
     const GOCSPX: &str = "GOCSPX-AbCdEfGhIjKlMnOpQrStUvWxYz01";
@@ -248,8 +259,9 @@ mod tests {
         "mongodb://app:Tr0ub4dor3@db1.internal:27017,db2.internal:27017/app";
     const REDIS_URI: &str = "rediss://:Tr0ub4dor3@cache.internal:6380";
     const AMQP_URI: &str = "amqps://app:Tr0ub4dor3@mq.internal/vhost";
-    const EC_KEY: &str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIJ6H2X\nAwEHoUQDQgAE\n-----END EC PRIVATE KEY-----";
-    const PGP_KEY: &str = "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQOYBF\n=abcd\n-----END PGP PRIVATE KEY BLOCK-----";
+    const EC_KEY: &str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIJ6H2XqzL0mKoZIzj0DAQehRANCAAQb\nAwEHoUQDQgAEr5KjVn1TfC8Qd0yXpBmZ4wQ==\n-----END EC PRIVATE KEY-----";
+    const ENCRYPTED_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,3F2A9C1E5B7D8046A1B2C3D4E5F60718\n\nMIIEpAIBAAKCAQEAxq7Z9vW3kL2mN4oP6qR8sT0uV2wX4yZ6aB8cD0eF2gH4iJ6k\n-----END RSA PRIVATE KEY-----";
+    const PGP_KEY: &str = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2\n\nlQOYBF9x2K4BCADq7mN1pQ3sT8vWzY2aB4cD6eF8gH0iJ2kL4mN6oP8qR0sT2uV4\n=abcd\n-----END PGP PRIVATE KEY BLOCK-----";
 
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
         crate::rules::scan(RULES, buf)
@@ -268,8 +280,8 @@ mod tests {
 
     #[test_case(AKIA, AWS_ACCESS, AKIA ; "aws_access_bare")]
     #[test_case(&format!("key: {ASIA}\n"), AWS_ACCESS, ASIA ; "aws_access_session_anchor")]
-    #[test_case("ABIAIOSFODNN7EXAMPLE", AWS_ACCESS, "ABIAIOSFODNN7EXAMPLE" ; "aws_access_sts_bearer")]
-    #[test_case("ACCAIOSFODNN7EXAMPLE", AWS_ACCESS, "ACCAIOSFODNN7EXAMPLE" ; "aws_access_context_credential")]
+    #[test_case(&format!("ABIA{AWS_KEY_BODY}"), AWS_ACCESS, &format!("ABIA{AWS_KEY_BODY}") ; "aws_access_sts_bearer")]
+    #[test_case(&format!("ACCA{AWS_KEY_BODY}"), AWS_ACCESS, &format!("ACCA{AWS_KEY_BODY}") ; "aws_access_context_credential")]
     #[test_case(&format!("aws_secret_access_key = {AWS_SECRET_VALUE}\n"), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_ini")]
     #[test_case(&format!("AWS_SECRET_ACCESS_KEY={AWS_SECRET_VALUE}"), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_env_at_end")]
     #[test_case(&format!("\"aws_secret_access_key\": \"{AWS_SECRET_VALUE}\""), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_json")]
@@ -311,20 +323,23 @@ mod tests {
     #[test_case(&format!("const broker = '{AMQP_URI}';"), DATABASE_URI, AMQP_URI ; "database_uri_amqp")]
     #[test_case(EC_KEY, PRIVATE_KEY, EC_KEY ; "ec_private_key")]
     #[test_case(PGP_KEY, PRIVATE_KEY, PGP_KEY ; "pgp_private_key_block")]
+    #[test_case(ENCRYPTED_KEY, PRIVATE_KEY, ENCRYPTED_KEY ; "encrypted_rsa_private_key")]
     fn single_match(buf: &str, rule_id: &'static str, secret: &str) {
         assert_eq!(scan(buf.as_bytes()), [(rule_id, secret.as_bytes())]);
     }
 
-    #[test_case("AKIAIOSFODNN7EXAMPL" ; "aws_access_too_short")]
-    #[test_case("AKIAIOSFODNN7EXAMPLE1" ; "aws_access_too_long")]
-    #[test_case("AKIAiosfodnn7example" ; "aws_access_lowercase")]
-    #[test_case("AKIA1OSFODNN7EXAMPLE" ; "aws_access_digit_outside_base32")]
-    #[test_case("AKIB IOSFODNN7EXAMPLE" ; "aws_access_wrong_prefix")]
-    #[test_case("aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE" ; "aws_secret_too_short")]
-    #[test_case("aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY/" ; "aws_secret_too_long")]
-    #[test_case("aws_secret_access_key                  = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws_secret_gap_too_large")]
+    #[test_case("AKIAJQ7ZX4KYN3T2A5U" ; "aws_access_too_short")]
+    #[test_case(&format!("{AKIA}1") ; "aws_access_too_long")]
+    #[test_case("AKIAjq7zx4kyn3t2a5ub" ; "aws_access_lowercase")]
+    #[test_case(&format!("AKIA1{}", &AWS_KEY_BODY[1..]) ; "aws_access_digit_outside_base32")]
+    #[test_case("AKIAIOSFODNN7EXAMPLE" ; "aws_access_docs_example")]
+    #[test_case(&format!("AKIB {AWS_KEY_BODY}") ; "aws_access_wrong_prefix")]
+    #[test_case(&format!("aws_secret_access_key = {}", &AWS_SECRET_VALUE[..39]) ; "aws_secret_too_short")]
+    #[test_case("aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws_secret_docs_example")]
+    #[test_case(&format!("aws_secret_access_key = {AWS_SECRET_VALUE}/") ; "aws_secret_too_long")]
+    #[test_case(&format!("aws_secret_access_key                  = {AWS_SECRET_VALUE}") ; "aws_secret_gap_too_large")]
     #[test_case("aws_secret_access_key = process.env.AWS_SECRET_ACCESS_KEY" ; "aws_secret_env_reference")]
-    #[test_case("secretAccessKey wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" ; "aws_secret_no_separator")]
+    #[test_case(&format!("secretAccessKey {AWS_SECRET_VALUE}") ; "aws_secret_no_separator")]
     #[test_case(&format!("ABSK{}", repeat(b'a', 108)) ; "bedrock_too_short")]
     #[test_case(&format!("ABSK{}", repeat(b'a', 270)) ; "bedrock_too_long")]
     #[test_case(&format!("ABSK{}", repeat(b'-', 120)) ; "bedrock_bad_charset")]
@@ -387,6 +402,9 @@ mod tests {
     #[test_case("https://app:Tr0ub4dor3@api.internal" ; "database_uri_http_scheme")]
     #[test_case("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----" ; "certificate_is_not_private_key")]
     #[test_case("-----BEGIN RSA PRIVATE KEY-----\nMIIB\n" ; "private_key_without_footer")]
+    #[test_case("-----BEGIN RSA PRIVATE KEY----- -----END RSA PRIVATE KEY-----" ; "private_key_empty_body")]
+    #[test_case("\"-----BEGIN RSA PRIVATE KEY-----\\n\";return t+=e.wordwrap(this.getPrivateBaseKeyB64())+\"\\n\",t+=\"-----END RSA PRIVATE KEY-----\"" ; "private_key_js_concatenation")]
+    #[test_case("-----BEGIN PRIVATE KEY-----\n * private-key\n * @type {string}\n * used by the signer module for jwt tokens ok\n-----END PRIVATE KEY-----" ; "private_key_doc_comment")]
     fn no_match(buf: &str) {
         assert_eq!(scan(buf.as_bytes()), []);
     }
@@ -407,7 +425,7 @@ mod tests {
 
     #[test]
     fn service_account_json_reports_client_email_and_private_key() {
-        let pem = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\n-----END PRIVATE KEY-----";
+        let pem = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7x2mNq4kZ\\nvP8sT0uV2wX4yZ6aB8cD0eF2gH4i\\n-----END PRIVATE KEY-----";
         let buf = service_account_json(pem);
         assert_eq!(
             scan(buf.as_bytes()),
