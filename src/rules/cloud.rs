@@ -7,11 +7,21 @@ const SCHEME_SEPARATOR: &[u8] = b"://";
 /// Marker AWS uses in every documentation credential (`AKIAIOSFODNN7EXAMPLE`).
 const AWS_EXAMPLE_MARKER: &[u8] = b"EXAMPLE";
 /// Host fragments (ASCII case-insensitive) that mark a placeholder host.
-const PLACEHOLDER_HOSTS: &[&[u8]] = &[b"localhost", b"127.", b"0.0.0.0", b"example", b"<"];
+const PLACEHOLDER_HOSTS: &[&[u8]] = &[
+    b"localhost",
+    b"127.",
+    b"0.0.0.0",
+    b"example",
+    b"<",
+    b"{",
+    b"[",
+];
 /// Whole passwords (ASCII case-insensitive) that are placeholders.
 const PLACEHOLDER_PASSWORDS: &[&[u8]] = &[b"password", b"pass", b"changeme", b"secret"];
 /// Password fragments (ASCII case-insensitive) that mark a placeholder.
-const PLACEHOLDER_PASSWORD_FRAGMENTS: &[&[u8]] = &[b"xxx", b"<", b"${", b"%s"];
+const PLACEHOLDER_PASSWORD_FRAGMENTS: &[&[u8]] = &[b"xxx", b"<", b"{", b"[", b"]", b"%s"];
+/// Shorter passwords are documentation shorthand (`u:p@h`).
+const MIN_PASSWORD_LEN: usize = 3;
 
 pub const RULES: &[Rule] = &[
     Rule {
@@ -169,8 +179,9 @@ fn is_not_azurite_key(secret: &[u8]) -> bool {
     secret != AZURITE_ACCOUNT_KEY
 }
 
-/// True if a `scheme://user:pass@host` URI carries a non-empty password and
-/// neither the password nor the host is a placeholder.
+/// True if a `scheme://user:pass@host` URI carries a password that is not a
+/// placeholder, not the username repeated, and a host that is not a
+/// placeholder.
 fn has_real_credentials(uri: &[u8]) -> bool {
     let Some(scheme_end) = uri
         .windows(SCHEME_SEPARATOR.len())
@@ -183,17 +194,20 @@ fn has_real_credentials(uri: &[u8]) -> bool {
         return false;
     };
     let userinfo = &rest[..at];
-    let password = userinfo
+    let (user, password) = userinfo
         .iter()
         .position(|&byte| byte == b':')
-        .map_or(&[][..], |colon| &userinfo[colon + 1..]);
+        .map_or((userinfo, &[][..]), |colon| {
+            (&userinfo[..colon], &userinfo[colon + 1..])
+        });
     let authority = &rest[at + 1..];
     let host_end = authority
         .iter()
         .position(|&byte| matches!(byte, b':' | b'/' | b'?' | b','))
         .unwrap_or(authority.len());
     let host = &authority[..host_end];
-    !password.is_empty()
+    password.len() >= MIN_PASSWORD_LEN
+        && !password.eq_ignore_ascii_case(user)
         && !PLACEHOLDER_PASSWORDS
             .iter()
             .any(|word| password.eq_ignore_ascii_case(word))
@@ -455,6 +469,12 @@ mod tests {
     #[test_case(b"postgres://app:<pw>@db.internal" ; "angle_password")]
     #[test_case(b"postgres://app:${PW}@db.internal" ; "shell_template_password")]
     #[test_case(b"postgres://app:%s@db.internal" ; "format_string_password")]
+    #[test_case(b"amqp://guest:guest@mq.internal" ; "password_equals_user")]
+    #[test_case(b"postgres://Admin:admin@db.internal" ; "password_equals_user_ignoring_case")]
+    #[test_case(b"postgres://u:p@h/d" ; "single_char_password")]
+    #[test_case(b"mongodb://{{MONGO_USER}}:{{MONGO_PASS}}@{{MONGO_HOST}}" ; "mustache_template")]
+    #[test_case(b"postgresql://[user[:password]@][netloc]" ; "bracket_syntax_doc")]
+    #[test_case(b"postgresql://{user}:{password}@{host}" ; "brace_template")]
     #[test_case(b"postgres://app:Tr0ub4dor3@localhost" ; "localhost")]
     #[test_case(b"postgres://app:Tr0ub4dor3@LOCALHOST:5432" ; "localhost_uppercase")]
     #[test_case(b"postgres://app:Tr0ub4dor3@127.0.0.1" ; "loopback")]

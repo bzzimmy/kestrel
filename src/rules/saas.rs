@@ -2,6 +2,9 @@ use crate::rules::Rule;
 
 const SNOWFLAKE_MIN_DIGITS: usize = 17;
 const SNOWFLAKE_MAX_DIGITS: usize = 19;
+/// Base64 of binary data (fonts, wasm, DER) carries runs of identical
+/// characters that random tokens practically never do.
+const MAX_REPEAT_RUN: usize = 3;
 
 /// Every 3-char prefix of base64(three ASCII digits): the start of any
 /// base64-encoded Discord snowflake.
@@ -81,7 +84,7 @@ pub const RULES: &[Rule] = &[
         id: "square-token",
         anchors: &["sq0atp-", "sq0csp-", "EAAA"],
         pattern: r"\b(sq0(?:atp-[A-Za-z0-9_-]{22,60}|csp-[A-Za-z0-9_-]{43})|EAAA[A-Za-z0-9_+=-]{60})(?:[^A-Za-z0-9_+=-]|\z)",
-        verify: None,
+        verify: Some(has_no_long_repeat),
     },
     Rule {
         id: "braintree-access-token",
@@ -117,7 +120,7 @@ pub const RULES: &[Rule] = &[
         id: "meta-access-token",
         anchors: &["EAAM", "EAAC"],
         pattern: r"\bEAA[MC][A-Za-z0-9]{100,400}\b",
-        verify: None,
+        verify: Some(has_no_long_repeat),
     },
     Rule {
         id: "cloudinary-url",
@@ -142,6 +145,12 @@ pub const RULES: &[Rule] = &[
         verify: None,
     },
 ];
+
+fn has_no_long_repeat(secret: &[u8]) -> bool {
+    !secret
+        .windows(MAX_REPEAT_RUN + 1)
+        .any(|window| window.iter().all(|&byte| byte == window[0]))
+}
 
 /// True if the token's first `.`-separated segment is base64 of a 17-19
 /// digit snowflake.
@@ -227,6 +236,15 @@ mod tests {
         String::from_utf8(vec![byte; count]).unwrap_or_default()
     }
 
+    /// Non-repeating alphanumeric filler of the given length.
+    fn filler(count: usize) -> String {
+        "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            .chars()
+            .cycle()
+            .take(count)
+            .collect()
+    }
+
     #[test_case(&format!("token: '{XOXB}'"), SLACK_BOT, XOXB ; "slack_bot")]
     #[test_case(XOXP, SLACK_USER, XOXP ; "slack_user")]
     #[test_case(&format!("xapp-1-A0123456789-1234567890123-{HEX64}"), SLACK_APP, &format!("xapp-1-A0123456789-1234567890123-{HEX64}") ; "slack_app")]
@@ -243,15 +261,15 @@ mod tests {
     #[test_case("shpat_0123456789abcdef0123456789abcdef", SHOPIFY, "shpat_0123456789abcdef0123456789abcdef" ; "shopify_admin")]
     #[test_case("shpss_0123456789abcdef0123456789abcdef", SHOPIFY, "shpss_0123456789abcdef0123456789abcdef" ; "shopify_shared_secret")]
     #[test_case("sq0atp-AbCdEfGhIjKlMnOpQrStUv", SQUARE, "sq0atp-AbCdEfGhIjKlMnOpQrStUv" ; "square_access")]
-    #[test_case(&format!("sq0csp-{}", repeat(b'a', 43)), SQUARE, &format!("sq0csp-{}", repeat(b'a', 43)) ; "square_secret")]
-    #[test_case(&format!("token: EAAA{}", repeat(b'a', 60)), SQUARE, &format!("EAAA{}", repeat(b'a', 60)) ; "square_personal_access")]
+    #[test_case(&format!("sq0csp-{}", filler(43)), SQUARE, &format!("sq0csp-{}", filler(43)) ; "square_secret")]
+    #[test_case(&format!("token: EAAA{}", filler(60)), SQUARE, &format!("EAAA{}", filler(60)) ; "square_personal_access")]
     #[test_case("access_token$production$abcdefgh12345678$0123456789abcdef0123456789abcdef", BRAINTREE, "access_token$production$abcdefgh12345678$0123456789abcdef0123456789abcdef" ; "braintree")]
     #[test_case("access-production-01234567-89ab-cdef-0123-456789abcdef", PLAID, "access-production-01234567-89ab-cdef-0123-456789abcdef" ; "plaid")]
     #[test_case(&format!("SG.{}.{}", repeat(b'a', 22), repeat(b'b', 43)), SENDGRID, &format!("SG.{}.{}", repeat(b'a', 22), repeat(b'b', 43)) ; "sendgrid")]
     #[test_case("re_AbCdEfGh_AbCdEfGhJkLmNpQrStUvWxYz", RESEND, "re_AbCdEfGh_AbCdEfGhJkLmNpQrStUvWxYz" ; "resend")]
     #[test_case("pat-na1-01234567-89ab-cdef-0123-456789abcdef", HUBSPOT, "pat-na1-01234567-89ab-cdef-0123-456789abcdef" ; "hubspot")]
     #[test_case("pat-na2-01234567-89ab-cdef-0123-456789abcdef", HUBSPOT, "pat-na2-01234567-89ab-cdef-0123-456789abcdef" ; "hubspot_na2")]
-    #[test_case(&format!("EAAM{}", repeat(b'a', 150)), META, &format!("EAAM{}", repeat(b'a', 150)) ; "meta_page")]
+    #[test_case(&format!("EAAM{}", filler(150)), META, &format!("EAAM{}", filler(150)) ; "meta_page")]
     #[test_case("cloudinary://123456789012345:AbCdEfGhIjKlMnOpQrStUvWxYz1@mycloud", CLOUDINARY, "cloudinary://123456789012345:AbCdEfGhIjKlMnOpQrStUvWxYz1@mycloud" ; "cloudinary")]
     #[test_case(&format!("sntrys_eyJpYXQiOjE3MDAwMDAwMDAuMCwidXJsIjoiaHR0cHM6Ly9zZW50cnkuaW8ifQ==_{}", repeat(b'a', 43)), SENTRY, &format!("sntrys_eyJpYXQiOjE3MDAwMDAwMDAuMCwidXJsIjoiaHR0cHM6Ly9zZW50cnkuaW8ifQ==_{}", repeat(b'a', 43)) ; "sentry_org")]
     #[test_case(&format!("sntryu_{HEX64}"), SENTRY, &format!("sntryu_{HEX64}") ; "sentry_user")]
@@ -272,14 +290,16 @@ mod tests {
     #[test_case("sk_live_short" ; "stripe_too_short")]
     #[test_case("shpat_0123456789abcdef0123456789abcde" ; "shopify_too_short")]
     #[test_case("sq0atp-tooshort" ; "square_too_short")]
-    #[test_case(&format!("EAAA{}", repeat(b'a', 59)) ; "square_personal_too_short")]
-    #[test_case(&format!("EAAA{}", repeat(b'a', 61)) ; "square_personal_too_long")]
+    #[test_case(&format!("EAAA{}", filler(59)) ; "square_personal_too_short")]
+    #[test_case(&format!("EAAA{}", filler(61)) ; "square_personal_too_long")]
     #[test_case("access_token$sandbox$abcdefgh12345678$0123456789abcdef0123456789abcdef" ; "braintree_sandbox")]
     #[test_case("access-sandbox-01234567-89ab-cdef-0123-456789abcdef" ; "plaid_sandbox")]
     #[test_case("SG.short.short" ; "sendgrid_too_short")]
     #[test_case("re_AbCdEfGh_AbCdEfGhJkLmNpQrStUvWxY0" ; "resend_non_base58")]
     #[test_case("pat-na1-not-a-uuid" ; "hubspot_not_uuid")]
-    #[test_case(&format!("EAAM{}", repeat(b'a', 50)) ; "meta_too_short")]
+    #[test_case(&format!("EAAM{}", filler(50)) ; "meta_too_short")]
+    #[test_case(&format!("EAAC2z3BhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAAB{}", filler(100)) ; "meta_base64_font_blob")]
+    #[test_case("EAAAASAAAAATBFAiEApcyBPrFl6dxkn2B4kq8LFXDdsGVHYVmYfjf2utgQLkAAA1" ; "square_base64_der_blob")]
     #[test_case("cloudinary://<api_key>:<api_secret>@<cloud_name>" ; "cloudinary_placeholder")]
     #[test_case("cloudinary://mycloud" ; "cloudinary_no_credentials")]
     #[test_case("sntryu_0123" ; "sentry_too_short")]
