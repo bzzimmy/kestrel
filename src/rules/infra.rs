@@ -10,7 +10,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "terraform-cloud-token",
         anchors: &[".atlasv1."],
-        pattern: r"\b[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9]{60,70}\b",
+        pattern: r"\b([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_=-]{60,70})(?:[^A-Za-z0-9_=-]|\z)",
         verify: None,
     },
     Rule {
@@ -29,7 +29,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "onepassword-service-account-token",
         anchors: &["ops_eyJ"],
-        pattern: r"\b(ops_eyJ[A-Za-z0-9_-]{250,2000})(?:[^A-Za-z0-9_-]|\z)",
+        pattern: r"\b(ops_eyJ[A-Za-z0-9+/_-]{250,2000}={0,3})(?:[^A-Za-z0-9+/_=-]|\z)",
         verify: None,
     },
 ];
@@ -66,6 +66,7 @@ mod tests {
     #[test_case(&format!("credentials \"app.terraform.io\" {{\n  token = \"{TFC_PREFIX}.atlasv1.{}\"\n}}", repeat(b'z', 64)), TERRAFORM, &format!("{TFC_PREFIX}.atlasv1.{}", repeat(b'z', 64)) ; "terraform_cloud_hcl")]
     #[test_case(&format!("{TFC_PREFIX}.atlasv1.{}", repeat(b'z', 60)), TERRAFORM, &format!("{TFC_PREFIX}.atlasv1.{}", repeat(b'z', 60)) ; "terraform_cloud_min")]
     #[test_case(&format!("{TFC_PREFIX}.atlasv1.{}", repeat(b'z', 70)), TERRAFORM, &format!("{TFC_PREFIX}.atlasv1.{}", repeat(b'z', 70)) ; "terraform_cloud_max")]
+    #[test_case(&format!("{TFC_PREFIX}.atlasv1.{}-_=", repeat(b'z', 61)), TERRAFORM, &format!("{TFC_PREFIX}.atlasv1.{}-_=", repeat(b'z', 61)) ; "terraform_cloud_url_safe_chars")]
     #[test_case(&format!("DOPPLER_TOKEN='{DOPPLER_SERVICE}'"), DOPPLER, DOPPLER_SERVICE ; "doppler_service_with_config")]
     #[test_case(&format!("dp.st.{DOPPLER_BODY}"), DOPPLER, &format!("dp.st.{DOPPLER_BODY}") ; "doppler_service_legacy_no_config")]
     #[test_case(&format!("dp.st.my-config_2.{DOPPLER_BODY}"), DOPPLER, &format!("dp.st.my-config_2.{DOPPLER_BODY}") ; "doppler_service_config_with_symbols")]
@@ -78,7 +79,8 @@ mod tests {
     #[test_case(&format!("dp.pt.{}", repeat(b'a', 44)), DOPPLER, &format!("dp.pt.{}", repeat(b'a', 44)) ; "doppler_max")]
     #[test_case(&format!("export OP_SERVICE_ACCOUNT_TOKEN=ops_eyJ{}\n", repeat(b'a', 700)), ONEPASSWORD, &format!("ops_eyJ{}", repeat(b'a', 700)) ; "onepassword_env")]
     #[test_case(&format!("ops_eyJ{}-_", repeat(b'a', 248)), ONEPASSWORD, &format!("ops_eyJ{}-_", repeat(b'a', 248)) ; "onepassword_min")]
-    #[test_case(&format!("ops_eyJ{}==", repeat(b'a', 300)), ONEPASSWORD, &format!("ops_eyJ{}", repeat(b'a', 300)) ; "onepassword_padding_excluded")]
+    #[test_case(&format!("ops_eyJ{}==", repeat(b'a', 300)), ONEPASSWORD, &format!("ops_eyJ{}==", repeat(b'a', 300)) ; "onepassword_padded")]
+    #[test_case(&format!("ops_eyJ{}+/{}", repeat(b'a', 100), repeat(b'a', 200)), ONEPASSWORD, &format!("ops_eyJ{}+/{}", repeat(b'a', 100), repeat(b'a', 200)) ; "onepassword_standard_base64")]
     fn single_match(buf: &str, rule_id: &'static str, secret: &str) {
         assert_eq!(scan(buf.as_bytes()), [(rule_id, secret.as_bytes())]);
     }
@@ -103,7 +105,6 @@ mod tests {
     #[test_case(&format!("dp.st.p.{DOPPLER_BODY}") ; "doppler_service_config_too_short")]
     #[test_case(&format!("ops_eyJ{}", repeat(b'a', 249)) ; "onepassword_too_short")]
     #[test_case(&format!("ops_eyJ{}", repeat(b'a', 2001)) ; "onepassword_too_long")]
-    #[test_case(&format!("ops_eyJ{}+/{}", repeat(b'a', 100), repeat(b'a', 200)) ; "onepassword_standard_base64_rejected")]
     #[test_case(&format!("ops_abc{}", repeat(b'a', 300)) ; "onepassword_not_json_payload")]
     fn no_match(buf: &str) {
         assert_eq!(scan(buf.as_bytes()), []);

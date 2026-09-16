@@ -14,8 +14,8 @@ const PLACEHOLDER_PASSWORD_FRAGMENTS: &[&[u8]] = &[b"xxx", b"<", b"${", b"%s"];
 pub const RULES: &[Rule] = &[
     Rule {
         id: "aws-access-key",
-        anchors: &["AKIA", "ASIA"],
-        pattern: r"\b(?:AKIA|ASIA)[A-Z2-7]{16}\b",
+        anchors: &["AKIA", "ASIA", "ABIA", "ACCA"],
+        pattern: r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}\b",
         verify: None,
     },
     Rule {
@@ -118,7 +118,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "supabase-token",
         anchors: &["sb_secret_", "sbp_"],
-        pattern: r"\b(sb_secret_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}|sbp_(?:v0_)?[a-f0-9]{32,64})(?:[^A-Za-z0-9_-]|\z)",
+        pattern: r"\b(sb_secret_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}|sbp_[a-z0-9_-]{32,64})(?:[^A-Za-z0-9_-]|\z)",
         verify: None,
     },
     Rule {
@@ -268,6 +268,8 @@ mod tests {
 
     #[test_case(AKIA, AWS_ACCESS, AKIA ; "aws_access_bare")]
     #[test_case(&format!("key: {ASIA}\n"), AWS_ACCESS, ASIA ; "aws_access_session_anchor")]
+    #[test_case("ABIAIOSFODNN7EXAMPLE", AWS_ACCESS, "ABIAIOSFODNN7EXAMPLE" ; "aws_access_sts_bearer")]
+    #[test_case("ACCAIOSFODNN7EXAMPLE", AWS_ACCESS, "ACCAIOSFODNN7EXAMPLE" ; "aws_access_context_credential")]
     #[test_case(&format!("aws_secret_access_key = {AWS_SECRET_VALUE}\n"), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_ini")]
     #[test_case(&format!("AWS_SECRET_ACCESS_KEY={AWS_SECRET_VALUE}"), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_env_at_end")]
     #[test_case(&format!("\"aws_secret_access_key\": \"{AWS_SECRET_VALUE}\""), AWS_SECRET, AWS_SECRET_VALUE ; "aws_secret_json")]
