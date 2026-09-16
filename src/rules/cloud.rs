@@ -17,9 +17,19 @@ const PLACEHOLDER_HOSTS: &[&[u8]] = &[
     b"[",
 ];
 /// Whole passwords (ASCII case-insensitive) that are placeholders.
-const PLACEHOLDER_PASSWORDS: &[&[u8]] = &[b"password", b"pass", b"changeme", b"secret"];
+const PLACEHOLDER_PASSWORDS: &[&[u8]] = &[b"pass", b"changeme", b"secret"];
 /// Password fragments (ASCII case-insensitive) that mark a placeholder.
-const PLACEHOLDER_PASSWORD_FRAGMENTS: &[&[u8]] = &[b"xxx", b"<", b"{", b"[", b"]", b"%s"];
+const PLACEHOLDER_PASSWORD_FRAGMENTS: &[&[u8]] = &[
+    b"password",
+    b"xxx",
+    b"***",
+    b"<",
+    b"{",
+    b"[",
+    b"]",
+    b"$(",
+    b"%s",
+];
 /// Shorter passwords are documentation shorthand (`u:p@h`).
 const MIN_PASSWORD_LEN: usize = 3;
 
@@ -164,7 +174,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "private-key",
         anchors: &["-----BEGIN", "PRIVATE KEY-----"],
-        pattern: r"-----BEGIN[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----[A-Za-z0-9+/=\s:,.\\-]{64,}?-----END[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----",
+        pattern: r#"-----BEGIN[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----[A-Za-z0-9+/=\s:,.\\'"+-]{64,}?-----END[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----"#,
         verify: None,
     },
 ];
@@ -275,6 +285,7 @@ mod tests {
     const AMQP_URI: &str = "amqps://app:Tr0ub4dor3@mq.internal/vhost";
     const EC_KEY: &str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIJ6H2XqzL0mKoZIzj0DAQehRANCAAQb\nAwEHoUQDQgAEr5KjVn1TfC8Qd0yXpBmZ4wQ==\n-----END EC PRIVATE KEY-----";
     const ENCRYPTED_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,3F2A9C1E5B7D8046A1B2C3D4E5F60718\n\nMIIEpAIBAAKCAQEAxq7Z9vW3kL2mN4oP6qR8sT0uV2wX4yZ6aB8cD0eF2gH4iJ6k\n-----END RSA PRIVATE KEY-----";
+    const C_LITERAL_KEY: &str = "-----BEGIN PRIVATE KEY-----\\n\"\n      \"MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgqLuoQ3Y8tjbc\\n\"\n      \"E1LyLg9zzd4uHrHYXQyEEmZ4dlG4M7EiLmqhRANCAAQK9MN1ZSDhXdAbYhTa\\n\"\n      \"-----END PRIVATE KEY-----";
     const PGP_KEY: &str = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2\n\nlQOYBF9x2K4BCADq7mN1pQ3sT8vWzY2aB4cD6eF8gH0iJ2kL4mN6oP8qR0sT2uV4\n=abcd\n-----END PGP PRIVATE KEY BLOCK-----";
 
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
@@ -339,6 +350,7 @@ mod tests {
     #[test_case(EC_KEY, PRIVATE_KEY, EC_KEY ; "ec_private_key")]
     #[test_case(PGP_KEY, PRIVATE_KEY, PGP_KEY ; "pgp_private_key_block")]
     #[test_case(ENCRYPTED_KEY, PRIVATE_KEY, ENCRYPTED_KEY ; "encrypted_rsa_private_key")]
+    #[test_case(C_LITERAL_KEY, PRIVATE_KEY, C_LITERAL_KEY ; "c_string_literal_private_key")]
     fn single_match(buf: &str, rule_id: &'static str, secret: &str) {
         assert_eq!(scan(buf.as_bytes()), [(rule_id, secret.as_bytes())]);
     }
@@ -462,6 +474,9 @@ mod tests {
     #[test_case(b"postgres://app@db.internal" ; "no_password")]
     #[test_case(b"postgres://app:@db.internal" ; "empty_password")]
     #[test_case(b"postgres://app:Password@db.internal" ; "password_word")]
+    #[test_case(b"postgres://POSTGRES_USER:POSTGRES_PASSWORD@POSTGRES_HOST" ; "env_name_placeholders")]
+    #[test_case(b"postgres://user:***@host.internal/db" ; "masked_password")]
+    #[test_case(b"mongodb://admin:$(MONGO_PASSWORD)@sandbox-mongodb:27017/" ; "shell_subst_password")]
     #[test_case(b"postgres://app:pass@db.internal" ; "pass_word")]
     #[test_case(b"postgres://app:changeme@db.internal" ; "changeme_word")]
     #[test_case(b"postgres://app:SECRET@db.internal" ; "secret_word")]

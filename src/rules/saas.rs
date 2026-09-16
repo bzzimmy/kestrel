@@ -1,10 +1,14 @@
+use memchr::memchr_iter;
+
 use crate::rules::Rule;
 
 const SNOWFLAKE_MIN_DIGITS: usize = 17;
 const SNOWFLAKE_MAX_DIGITS: usize = 19;
 /// Base64 of binary data (fonts, wasm, DER) carries runs of identical
-/// characters that random tokens practically never do.
+/// characters that random tokens practically never do, and encodes its many
+/// zero bytes as `A`.
 const MAX_REPEAT_RUN: usize = 3;
+const MAX_A_PERCENT: usize = 20;
 
 /// Every 3-char prefix of base64(three ASCII digits): the start of any
 /// base64-encoded Discord snowflake.
@@ -84,7 +88,7 @@ pub const RULES: &[Rule] = &[
         id: "square-token",
         anchors: &["sq0atp-", "sq0csp-", "EAAA"],
         pattern: r"\b(sq0(?:atp-[A-Za-z0-9_-]{22,60}|csp-[A-Za-z0-9_-]{43})|EAAA[A-Za-z0-9_+=-]{60})(?:[^A-Za-z0-9_+=-]|\z)",
-        verify: Some(has_no_long_repeat),
+        verify: Some(is_not_binary_base64),
     },
     Rule {
         id: "braintree-access-token",
@@ -120,7 +124,7 @@ pub const RULES: &[Rule] = &[
         id: "meta-access-token",
         anchors: &["EAAM", "EAAC"],
         pattern: r"\bEAA[MC][A-Za-z0-9]{100,400}\b",
-        verify: Some(has_no_long_repeat),
+        verify: Some(is_not_binary_base64),
     },
     Rule {
         id: "cloudinary-url",
@@ -146,10 +150,12 @@ pub const RULES: &[Rule] = &[
     },
 ];
 
-fn has_no_long_repeat(secret: &[u8]) -> bool {
-    !secret
+fn is_not_binary_base64(secret: &[u8]) -> bool {
+    let has_long_run = secret
         .windows(MAX_REPEAT_RUN + 1)
-        .any(|window| window.iter().all(|&byte| byte == window[0]))
+        .any(|window| window.iter().all(|&byte| byte == window[0]));
+    let a_count = memchr_iter(b'A', secret).count();
+    !has_long_run && a_count * 100 <= secret.len() * MAX_A_PERCENT
 }
 
 /// True if the token's first `.`-separated segment is base64 of a 17-19
@@ -300,6 +306,8 @@ mod tests {
     #[test_case(&format!("EAAM{}", filler(50)) ; "meta_too_short")]
     #[test_case(&format!("EAAC2z3BhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAAB{}", filler(100)) ; "meta_base64_font_blob")]
     #[test_case("EAAAASAAAAATBFAiEApcyBPrFl6dxkn2B4kq8LFXDdsGVHYVmYfjf2utgQLkAAA1" ; "square_base64_der_blob")]
+    #[test_case("EAAAHy0AAMAQAAAgLQAAwRAAACEtAADCEAAAIi0AAMMQAAAjLQAAxBAAACQtAADFEAAAJS0A" ; "square_zero_heavy_blob")]
+    #[test_case(&format!("EAACBxAAAm8QAAJ3EAAC3xAAAucQAANPEAADVxAAA78QAAPHEAAALxQAADcU{}", filler(60)) ; "meta_zero_heavy_blob")]
     #[test_case("cloudinary://<api_key>:<api_secret>@<cloud_name>" ; "cloudinary_placeholder")]
     #[test_case("cloudinary://mycloud" ; "cloudinary_no_credentials")]
     #[test_case("sntryu_0123" ; "sentry_too_short")]
