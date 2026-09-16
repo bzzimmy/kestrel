@@ -56,7 +56,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "discord-bot-token",
         anchors: DISCORD_ANCHORS,
-        pattern: r"\b([MNO][DTjz][AEIMQUYcgk][wxyz0-5](?:[A-Za-z0-9_-]{19,20}|[A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,38})(?:[^A-Za-z0-9_-]|\z)",
+        pattern: r"\b([MNO][DTjz][AEIMQUYcgk][wxyz0-5](?:[A-Za-z0-9_-]{19,20}|[A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{6}\.(?:[A-Za-z0-9_-]{27}|[A-Za-z0-9_-]{38}))(?:[^A-Za-z0-9_-]|\z)",
         verify: Some(starts_with_snowflake),
     },
     Rule {
@@ -79,8 +79,8 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         id: "square-token",
-        anchors: &["sq0atp-", "sq0csp-"],
-        pattern: r"\b(sq0(?:atp-[A-Za-z0-9_-]{22,60}|csp-[A-Za-z0-9_-]{43}))(?:[^A-Za-z0-9_-]|\z)",
+        anchors: &["sq0atp-", "sq0csp-", "EAAA"],
+        pattern: r"\b(sq0(?:atp-[A-Za-z0-9_-]{22,60}|csp-[A-Za-z0-9_-]{43})|EAAA[A-Za-z0-9_+=-]{60})(?:[^A-Za-z0-9_+=-]|\z)",
         verify: None,
     },
     Rule {
@@ -109,8 +109,8 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         id: "hubspot-token",
-        anchors: &["pat-na1-", "pat-eu1-"],
-        pattern: r"\bpat-(?:na|eu)1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        anchors: &["pat-na1-", "pat-na2-", "pat-eu1-"],
+        pattern: r"\bpat-(?:na[12]|eu1)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         verify: None,
     },
     Rule {
@@ -213,6 +213,9 @@ mod tests {
     const XOXP: &str =
         "xoxp-1234567890-1234567890123-1234567890123-abcdef0123456789abcdef0123456789";
     const DISCORD: &str = "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz0";
+    const DISCORD_LEAKED: &str = "NjA3MjczNzg0NTM3NTE0MDI3.XUXOIA.bJKBgg6gs30yC5mV7e4kWnu4WaA";
+    const DISCORD_MODERN: &str =
+        "MTAwMzQyMDAzNDY3Mzg3MzM3Nw.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_";
     const SK_LIVE: &str = "sk_live_AbCdEfGhIjKlMnOpQrStUvWx";
     const AUTH0_SECRET: &str = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdEfGhIjKlMnOpQrStUvWxYz01";
 
@@ -232,6 +235,8 @@ mod tests {
     #[test_case(&format!("xoxc-123456789-123456789-123456789-{HEX64}"), SLACK_SESSION, &format!("xoxc-123456789-123456789-123456789-{HEX64}") ; "slack_session")]
     #[test_case(&format!("d=xoxd-{}%3D;", repeat(b'a', 120)), SLACK_COOKIE, &format!("xoxd-{}%3D", repeat(b'a', 120)) ; "slack_cookie")]
     #[test_case(&format!("Bot {DISCORD}"), DISCORD_BOT, DISCORD ; "discord_bot")]
+    #[test_case(&format!("token: '{DISCORD_LEAKED}'"), DISCORD_BOT, DISCORD_LEAKED ; "discord_bot_leaked_sample")]
+    #[test_case(DISCORD_MODERN, DISCORD_BOT, DISCORD_MODERN ; "discord_bot_modern_38_hmac")]
     #[test_case(&format!("mfa.{}", repeat(b'x', 84)), DISCORD_LEGACY, &format!("mfa.{}", repeat(b'x', 84)) ; "discord_legacy")]
     #[test_case(&format!("Stripe('{SK_LIVE}')"), STRIPE, SK_LIVE ; "stripe_secret")]
     #[test_case("rk_live_AbCdEfGhIjKlMnOpQrStUvWx", STRIPE, "rk_live_AbCdEfGhIjKlMnOpQrStUvWx" ; "stripe_restricted")]
@@ -239,11 +244,13 @@ mod tests {
     #[test_case("shpss_0123456789abcdef0123456789abcdef", SHOPIFY, "shpss_0123456789abcdef0123456789abcdef" ; "shopify_shared_secret")]
     #[test_case("sq0atp-AbCdEfGhIjKlMnOpQrStUv", SQUARE, "sq0atp-AbCdEfGhIjKlMnOpQrStUv" ; "square_access")]
     #[test_case(&format!("sq0csp-{}", repeat(b'a', 43)), SQUARE, &format!("sq0csp-{}", repeat(b'a', 43)) ; "square_secret")]
+    #[test_case(&format!("token: EAAA{}", repeat(b'a', 60)), SQUARE, &format!("EAAA{}", repeat(b'a', 60)) ; "square_personal_access")]
     #[test_case("access_token$production$abcdefgh12345678$0123456789abcdef0123456789abcdef", BRAINTREE, "access_token$production$abcdefgh12345678$0123456789abcdef0123456789abcdef" ; "braintree")]
     #[test_case("access-production-01234567-89ab-cdef-0123-456789abcdef", PLAID, "access-production-01234567-89ab-cdef-0123-456789abcdef" ; "plaid")]
     #[test_case(&format!("SG.{}.{}", repeat(b'a', 22), repeat(b'b', 43)), SENDGRID, &format!("SG.{}.{}", repeat(b'a', 22), repeat(b'b', 43)) ; "sendgrid")]
     #[test_case("re_AbCdEfGh_AbCdEfGhJkLmNpQrStUvWxYz", RESEND, "re_AbCdEfGh_AbCdEfGhJkLmNpQrStUvWxYz" ; "resend")]
     #[test_case("pat-na1-01234567-89ab-cdef-0123-456789abcdef", HUBSPOT, "pat-na1-01234567-89ab-cdef-0123-456789abcdef" ; "hubspot")]
+    #[test_case("pat-na2-01234567-89ab-cdef-0123-456789abcdef", HUBSPOT, "pat-na2-01234567-89ab-cdef-0123-456789abcdef" ; "hubspot_na2")]
     #[test_case(&format!("EAAM{}", repeat(b'a', 150)), META, &format!("EAAM{}", repeat(b'a', 150)) ; "meta_page")]
     #[test_case("cloudinary://123456789012345:AbCdEfGhIjKlMnOpQrStUvWxYz1@mycloud", CLOUDINARY, "cloudinary://123456789012345:AbCdEfGhIjKlMnOpQrStUvWxYz1@mycloud" ; "cloudinary")]
     #[test_case(&format!("sntrys_eyJpYXQiOjE3MDAwMDAwMDAuMCwidXJsIjoiaHR0cHM6Ly9zZW50cnkuaW8ifQ==_{}", repeat(b'a', 43)), SENTRY, &format!("sntrys_eyJpYXQiOjE3MDAwMDAwMDAuMCwidXJsIjoiaHR0cHM6Ly9zZW50cnkuaW8ifQ==_{}", repeat(b'a', 43)) ; "sentry_org")]
@@ -259,11 +266,14 @@ mod tests {
     #[test_case("https://hooks.slack.com/services/T000/B000/XXXX" ; "slack_webhook_ignored")]
     #[test_case("MTIzNDU2Nzg5MDEyMzQ1Njdh.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz0" ; "discord_segment_not_all_digits")]
     #[test_case("MTIzNDU2Nzg5MDEyMzQ1.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz0" ; "discord_segment_too_short")]
+    #[test_case("MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz012" ; "discord_hmac_between_27_and_38")]
     #[test_case("pk_live_AbCdEfGhIjKlMnOpQrStUvWx" ; "stripe_publishable")]
     #[test_case("sk_test_AbCdEfGhIjKlMnOpQrStUvWx" ; "stripe_test")]
     #[test_case("sk_live_short" ; "stripe_too_short")]
     #[test_case("shpat_0123456789abcdef0123456789abcde" ; "shopify_too_short")]
     #[test_case("sq0atp-tooshort" ; "square_too_short")]
+    #[test_case(&format!("EAAA{}", repeat(b'a', 59)) ; "square_personal_too_short")]
+    #[test_case(&format!("EAAA{}", repeat(b'a', 61)) ; "square_personal_too_long")]
     #[test_case("access_token$sandbox$abcdefgh12345678$0123456789abcdef0123456789abcdef" ; "braintree_sandbox")]
     #[test_case("access-sandbox-01234567-89ab-cdef-0123-456789abcdef" ; "plaid_sandbox")]
     #[test_case("SG.short.short" ; "sendgrid_too_short")]
