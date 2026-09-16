@@ -12,21 +12,12 @@ mod tests {
     use test_case::test_case;
 
     use super::RULES;
-    use crate::matcher::Matcher;
 
     const GITHUB: &str = "github-token";
     const GHP: &[u8] = b"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    #[expect(
-        clippy::expect_used,
-        reason = "a rule that fails to compile is a rule bug"
-    )]
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
-        let matcher = Matcher::new(RULES).expect("rules must compile");
-        matcher
-            .scan(buf)
-            .map(|m| (m.rule_id, &buf[m.start..m.end]))
-            .collect()
+        crate::rules::scan(RULES, buf)
     }
 
     #[test_case(b"token = \"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"", GITHUB, GHP ; "github_quoted")]

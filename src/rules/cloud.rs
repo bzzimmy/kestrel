@@ -14,7 +14,11 @@ pub const RULES: &[Rule] = &[
             "AWS_SECRET_ACCESS_KEY",
             "secretAccessKey",
         ],
-        pattern: r#"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY|secretAccessKey)[^\n=:]{0,16}[=:]>?\s{0,8}["'`]?([A-Za-z0-9/+]{40})(?:[^A-Za-z0-9/+]|\z)"#,
+        pattern: keyword_gated!(
+            "(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY|secretAccessKey)",
+            "A-Za-z0-9/+",
+            "{40}"
+        ),
         verify: None,
     },
     Rule {
@@ -30,7 +34,6 @@ mod tests {
     use test_case::test_case;
 
     use super::RULES;
-    use crate::matcher::Matcher;
 
     const AWS_ACCESS: &str = "aws-access-key";
     const AWS_SECRET: &str = "aws-secret-key";
@@ -42,16 +45,8 @@ mod tests {
     const EC_KEY: &[u8] = b"-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIJ6H2X\nAwEHoUQDQgAE\n-----END EC PRIVATE KEY-----";
     const PGP_KEY: &[u8] = b"-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQOYBF\n=abcd\n-----END PGP PRIVATE KEY BLOCK-----";
 
-    #[expect(
-        clippy::expect_used,
-        reason = "a rule that fails to compile is a rule bug"
-    )]
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
-        let matcher = Matcher::new(RULES).expect("rules must compile");
-        matcher
-            .scan(buf)
-            .map(|m| (m.rule_id, &buf[m.start..m.end]))
-            .collect()
+        crate::rules::scan(RULES, buf)
     }
 
     #[test_case(b"AKIAIOSFODNN7EXAMPLE", AWS_ACCESS, AKIA ; "aws_access_bare")]

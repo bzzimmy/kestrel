@@ -1,14 +1,15 @@
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use regex::bytes::{Regex, RegexBuilder};
+use regex_syntax::Parser;
 use thiserror::Error;
 
 use crate::rules::Rule;
 
-/// Bytes of context before an anchor hit; must cover the distance from a
-/// secret's start to its furthest mid-secret anchor (e.g. `OpenAI` `T3BlbkFJ`).
-const WINDOW_BEFORE: usize = 256;
-/// Bytes after an anchor hit; must cover the longest secret (PEM blocks).
-const WINDOW_AFTER: usize = 32 * 1024;
+/// Window on each side of an anchor hit for patterns without a bounded
+/// maximum length; must cover the longest secret (PEM blocks).
+const UNBOUNDED_WINDOW: usize = 32 * 1024;
+/// Extra byte past the window so a trailing `\b` sees the next character.
+const BOUNDARY_SLACK: usize = 1;
 
 #[derive(Debug, Error)]
 pub enum BuildError {
@@ -42,6 +43,7 @@ pub struct Matcher {
 struct CompiledRule {
     id: &'static str,
     regex: Regex,
+    window: usize,
     verify: Option<fn(&[u8]) -> bool>,
 }
 
@@ -106,9 +108,15 @@ impl CompiledRule {
         if regex.is_match(b"") {
             return Err(BuildError::EmptyPattern { rule: rule.id });
         }
+        let window = Parser::new()
+            .parse(rule.pattern)
+            .ok()
+            .and_then(|hir| hir.properties().maximum_len())
+            .unwrap_or(UNBOUNDED_WINDOW);
         Ok(Self {
             id: rule.id,
             regex,
+            window,
             verify: rule.verify,
         })
     }
@@ -116,10 +124,12 @@ impl CompiledRule {
     /// Runs the confirming regex on a window around `hit` and returns the
     /// secret's byte range in `buf` if the leftmost match covering the hit
     /// passes the verify hook. The secret is capture group 1 when the
-    /// pattern has one (keyword-gated rules), else the whole match.
+    /// pattern has one (keyword-gated rules), else the whole match. The
+    /// window is the pattern's maximum match length on each side, so a
+    /// match covering the hit can never be cut off.
     fn confirm(&self, buf: &[u8], hit: usize) -> Option<(usize, usize)> {
-        let lo = hit.saturating_sub(WINDOW_BEFORE);
-        let hi = buf.len().min(hit + WINDOW_AFTER);
+        let lo = hit.saturating_sub(self.window);
+        let hi = buf.len().min(hit + self.window + BOUNDARY_SLACK);
         let window = &buf[lo..hi];
         let hit = hit - lo;
         let whole = self
@@ -142,7 +152,7 @@ impl CompiledRule {
 mod tests {
     use test_case::test_case;
 
-    use super::{BuildError, Match, Matcher, WINDOW_AFTER, WINDOW_BEFORE};
+    use super::{BuildError, Match, Matcher, UNBOUNDED_WINDOW};
     use crate::rules::Rule;
 
     const PREFIX_ID: &str = "prefix";
@@ -267,29 +277,28 @@ mod tests {
     }
 
     #[test]
-    fn secret_longer_than_after_window_is_not_reported() {
+    fn unbounded_secret_longer_than_window_is_not_reported() {
         let mut buf = b"BEGIN ".to_vec();
-        buf.extend(std::iter::repeat_n(b'a', WINDOW_AFTER));
+        buf.extend(std::iter::repeat_n(b'a', UNBOUNDED_WINDOW));
         buf.extend_from_slice(b" END");
         assert_eq!(scan(&[DOUBLE], &buf), []);
     }
 
     #[test]
-    fn secret_within_after_window_is_reported() {
-        let body = WINDOW_AFTER - "BEGIN ".len() - " END".len();
+    fn unbounded_secret_within_window_is_reported() {
+        let body = UNBOUNDED_WINDOW - "BEGIN ".len() - " END".len();
         let mut buf = b"BEGIN ".to_vec();
         buf.extend(std::iter::repeat_n(b'a', body));
         buf.extend_from_slice(b" END");
-        assert_eq!(scan(&[DOUBLE], &buf), [m(DOUBLE_ID, 0, WINDOW_AFTER)]);
+        assert_eq!(scan(&[DOUBLE], &buf), [m(DOUBLE_ID, 0, UNBOUNDED_WINDOW)]);
     }
 
     #[test]
-    fn trailing_anchor_beyond_before_window_still_reported_once() {
-        let body = WINDOW_BEFORE * 2;
-        let mut buf = b"BEGIN ".to_vec();
-        buf.extend(std::iter::repeat_n(b'a', body));
-        buf.extend_from_slice(b" END");
-        assert_eq!(scan(&[DOUBLE], &buf), [m(DOUBLE_ID, 0, buf.len())]);
+    fn bounded_secret_far_from_buffer_edges_is_reported() {
+        let padding = vec![b'a'; UNBOUNDED_WINDOW];
+        let buf = [padding.as_slice(), b" tok_1234 ", padding.as_slice()].concat();
+        let start = UNBOUNDED_WINDOW + 1;
+        assert_eq!(scan(&[PREFIX], &buf), [m(PREFIX_ID, start, start + 8)]);
     }
 
     #[test]
