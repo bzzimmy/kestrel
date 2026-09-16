@@ -4,6 +4,7 @@ use std::sync::{Mutex, PoisonError};
 
 use serde::Serialize;
 
+use crate::matcher::Encoding;
 use crate::scan::Finding;
 
 /// Characters kept on each side of a redacted secret.
@@ -25,6 +26,8 @@ struct Record<'a> {
     rule: &'static str,
     secret: &'a str,
     redacted: Redacted<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encoding: Option<&'static str>,
 }
 
 struct Redacted<'a>(&'a str);
@@ -46,6 +49,9 @@ impl<W: Write> JsonLines<W> {
             rule: finding.rule_id,
             secret: &secret,
             redacted: Redacted(&secret),
+            encoding: finding.encoding.map(|encoding| match encoding {
+                Encoding::Base64 => "base64",
+            }),
         };
         let mut writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         if let Err(err) = serde_json::to_writer(&mut *writer, &record)
@@ -128,6 +134,7 @@ mod tests {
             start,
             line: 1,
             secret,
+            encoding: None,
         }
     }
 

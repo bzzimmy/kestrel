@@ -1,3 +1,4 @@
+mod base64;
 mod matcher;
 mod output;
 mod rules;

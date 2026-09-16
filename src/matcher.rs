@@ -5,6 +5,7 @@ use regex_syntax::hir::literal::{ExtractKind, Extractor};
 use regex_syntax::hir::{Hir, Look};
 use thiserror::Error;
 
+use crate::base64::{decode_into, encoded_anchors, is_base64_byte};
 use crate::rules::Rule;
 
 /// Window on each side of an anchor hit for patterns without a bounded
@@ -12,6 +13,9 @@ use crate::rules::Rule;
 const UNBOUNDED_WINDOW: usize = 32 * 1024;
 /// Extra byte past the window so a trailing `\b` sees the next character.
 const BOUNDARY_SLACK: usize = 1;
+/// Base64 characters per 3 decoded bytes.
+const ENCODED_GROUP: usize = 4;
+const DECODED_GROUP: usize = 3;
 
 #[derive(Debug, Error)]
 pub enum BuildError {
@@ -29,17 +33,41 @@ pub enum BuildError {
     Automaton(#[from] aho_corasick::BuildError),
 }
 
+/// A confirmed secret. `start..end` is its span in the scanned buffer; for a
+/// base64 hit that span is the encoded run and `secret` is the decoded value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Match {
+pub struct Match<'a> {
     pub rule_id: &'static str,
     pub start: usize,
     pub end: usize,
+    pub secret: &'a [u8],
+    pub encoding: Option<Encoding>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoding {
+    Base64,
 }
 
 pub struct Matcher {
     automaton: AhoCorasick,
     rules: Vec<CompiledRule>,
-    rule_of_pattern: Vec<usize>,
+    patterns: Vec<Pattern>,
+}
+
+/// What an automaton pattern stands for: a rule's anchor as-is, or that
+/// anchor as it appears inside base64 text at a given byte alignment.
+struct Pattern {
+    rule: usize,
+    encoded: Option<Alignment>,
+}
+
+#[derive(Clone, Copy)]
+struct Alignment {
+    /// Byte offset of the anchor within its first 3-byte group.
+    offset: usize,
+    /// Encoded characters between that group's start and the literal.
+    skip: usize,
 }
 
 struct CompiledRule {
@@ -60,42 +88,67 @@ impl Matcher {
             .iter()
             .map(|rule| CompiledRule::new(rule))
             .collect::<Result<Vec<_>, _>>()?;
-        let rule_of_pattern = rules
-            .iter()
-            .enumerate()
-            .flat_map(|(index, rule)| rule.anchors.iter().map(move |_| index))
-            .collect();
+        let mut literals: Vec<Vec<u8>> = Vec::new();
+        let mut patterns = Vec::new();
+        for (index, rule) in rules.iter().enumerate() {
+            for anchor in rule.anchors {
+                literals.push(anchor.as_bytes().to_vec());
+                patterns.push(Pattern {
+                    rule: index,
+                    encoded: None,
+                });
+                for encoded in encoded_anchors(anchor.as_bytes()) {
+                    literals.push(encoded.literal);
+                    patterns.push(Pattern {
+                        rule: index,
+                        encoded: Some(Alignment {
+                            offset: encoded.alignment,
+                            skip: encoded.skip,
+                        }),
+                    });
+                }
+            }
+        }
         let automaton = AhoCorasick::builder()
             .match_kind(MatchKind::LeftmostLongest)
             .kind(Some(AhoCorasickKind::DFA))
-            .build(rules.iter().flat_map(|rule| rule.anchors))?;
+            .build(&literals)?;
         Ok(Self {
             automaton,
             rules: compiled,
-            rule_of_pattern,
+            patterns,
         })
     }
 
-    /// Yields every confirmed secret in `buf` as byte offsets, in anchor-hit
-    /// order. The same `(rule, start)` is never yielded twice. Anchor hits
+    /// Calls `sink` with every confirmed secret in `buf`, in anchor-hit
+    /// order. The same `(rule, start)` is never reported twice. Anchor hits
     /// are non-overlapping and leftmost-longest, so an anchor embedded in a
     /// longer one (`xoxb-` inside `xoxe.xoxb-`) only fires on its own.
-    pub fn scan<'a>(&'a self, buf: &'a [u8]) -> impl Iterator<Item = Match> + 'a {
+    /// `scratch` holds decoded base64 between calls; secrets borrow from it.
+    pub fn scan(&self, buf: &[u8], scratch: &mut Vec<u8>, mut sink: impl FnMut(&Match<'_>)) {
         let mut last_start = vec![None; self.rules.len()];
-        self.automaton.find_iter(buf).filter_map(move |hit| {
-            let index = self.rule_of_pattern[hit.pattern().as_usize()];
-            let rule = &self.rules[index];
-            let (start, end) = rule.confirm(buf, hit.start())?;
-            if last_start[index] == Some(start) {
-                return None;
+        for hit in self.automaton.find_iter(buf) {
+            let pattern = &self.patterns[hit.pattern().as_usize()];
+            let rule = &self.rules[pattern.rule];
+            let found = match pattern.encoded {
+                None => rule.confirm(buf, hit.start()).map(|(start, end)| Match {
+                    rule_id: rule.id,
+                    start,
+                    end,
+                    secret: &buf[start..end],
+                    encoding: None,
+                }),
+                Some(alignment) => rule.confirm_encoded(buf, hit.start(), alignment, scratch),
+            };
+            let Some(found) = found else {
+                continue;
+            };
+            if last_start[pattern.rule] == Some(found.start) {
+                continue;
             }
-            last_start[index] = Some(start);
-            Some(Match {
-                rule_id: rule.id,
-                start,
-                end,
-            })
-        })
+            last_start[pattern.rule] = Some(found.start);
+            sink(&found);
+        }
     }
 }
 
@@ -141,6 +194,9 @@ impl CompiledRule {
     /// window is the pattern's maximum match length on each side, so a
     /// match covering the hit can never be cut off.
     fn confirm(&self, buf: &[u8], hit: usize) -> Option<(usize, usize)> {
+        if hit >= buf.len() {
+            return None;
+        }
         if self.boundary_prefix && hit > 0 && is_word_byte(buf[hit - 1]) == is_word_byte(buf[hit]) {
             return None;
         }
@@ -161,6 +217,40 @@ impl CompiledRule {
         self.verify
             .is_none_or(|verify| verify(secret.as_bytes()))
             .then(|| (lo + secret.start(), lo + secret.end()))
+    }
+
+    /// Decodes the base64 run around an encoded-anchor hit into `scratch`
+    /// and confirms the rule on the decoded bytes. The run is cut to the
+    /// rule's window on each side of the hit and kept aligned to 4-character
+    /// groups so the anchor decodes at a known offset.
+    fn confirm_encoded<'s>(
+        &self,
+        buf: &[u8],
+        hit: usize,
+        alignment: Alignment,
+        scratch: &'s mut Vec<u8>,
+    ) -> Option<Match<'s>> {
+        let limit = self.window.div_ceil(DECODED_GROUP) * ENCODED_GROUP + ENCODED_GROUP;
+        let group_start = hit.checked_sub(alignment.skip)?;
+        let run_lo = (group_start.saturating_sub(limit)..group_start)
+            .rev()
+            .take_while(|&i| is_base64_byte(buf[i]))
+            .last()
+            .unwrap_or(group_start);
+        let lo = group_start - (group_start - run_lo) / ENCODED_GROUP * ENCODED_GROUP;
+        let hi = (hit..buf.len().min(hit + limit))
+            .find(|&i| !is_base64_byte(buf[i]) && buf[i] != b'=')
+            .unwrap_or(buf.len().min(hit + limit));
+        decode_into(&buf[lo..hi], scratch);
+        let decoded_hit = (group_start - lo) / ENCODED_GROUP * DECODED_GROUP + alignment.offset;
+        let (start, end) = self.confirm(scratch, decoded_hit)?;
+        Some(Match {
+            rule_id: self.id,
+            start: lo,
+            end: hi,
+            secret: &scratch[start..end],
+            encoding: Some(Encoding::Base64),
+        })
     }
 }
 
@@ -195,7 +285,7 @@ fn is_word_byte(byte: u8) -> bool {
 mod tests {
     use test_case::test_case;
 
-    use super::{BuildError, CompiledRule, Match, Matcher, UNBOUNDED_WINDOW};
+    use super::{BuildError, CompiledRule, Encoding, Matcher, UNBOUNDED_WINDOW};
     use crate::rules::Rule;
 
     const PREFIX_ID: &str = "prefix";
@@ -243,23 +333,44 @@ mod tests {
         secret[4..].iter().all(|digit| (digit - b'0') % 2 == 0)
     }
 
+    fn scan(rules: &[Rule], buf: &[u8]) -> Vec<(&'static str, usize, usize)> {
+        found(rules, buf)
+            .into_iter()
+            .map(|f| (f.rule_id, f.start, f.end))
+            .collect()
+    }
+
+    /// Owned copy of a match, since secrets may borrow the decode scratch.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Found {
+        rule_id: &'static str,
+        start: usize,
+        end: usize,
+        secret: Vec<u8>,
+        encoding: Option<Encoding>,
+    }
+
     #[expect(
         clippy::expect_used,
         reason = "a rule that fails to compile is a test bug"
     )]
-    fn scan(rules: &[Rule], buf: &[u8]) -> Vec<Match> {
-        Matcher::new(rules)
-            .expect("test rules must compile")
-            .scan(buf)
-            .collect()
+    fn found(rules: &[Rule], buf: &[u8]) -> Vec<Found> {
+        let matcher = Matcher::new(rules).expect("test rules must compile");
+        let mut out = Vec::new();
+        matcher.scan(buf, &mut Vec::new(), |m| {
+            out.push(Found {
+                rule_id: m.rule_id,
+                start: m.start,
+                end: m.end,
+                secret: m.secret.to_vec(),
+                encoding: m.encoding,
+            });
+        });
+        out
     }
 
-    fn m(rule_id: &'static str, start: usize, end: usize) -> Match {
-        Match {
-            rule_id,
-            start,
-            end,
-        }
+    fn m(rule_id: &'static str, start: usize, end: usize) -> (&'static str, usize, usize) {
+        (rule_id, start, end)
     }
 
     #[test_case(b"tok_1234", &[m(PREFIX_ID, 0, 8)] ; "anchor_at_buffer_start")]
@@ -272,7 +383,7 @@ mod tests {
     #[test_case(b"tok_12a4", &[] ; "wrong_charset")]
     #[test_case(b"tak_1234", &[] ; "near_miss_prefix")]
     #[test_case(b"xtok_1234", &[] ; "no_leading_boundary")]
-    fn prefix_rule(buf: &[u8], expected: &[Match]) {
+    fn prefix_rule(buf: &[u8], expected: &[(&str, usize, usize)]) {
         assert_eq!(scan(&[PREFIX], buf), expected);
     }
 
@@ -282,27 +393,30 @@ mod tests {
     #[test_case(b"secret=abcdefg", &[] ; "value_too_short")]
     #[test_case(b"secret=ABCDEFGH", &[] ; "value_wrong_charset")]
     #[test_case(b"secret=\nsecret=abcdefgh", &[m(KEYWORD_ID, 15, 23)] ; "second_keyword_confirms")]
-    fn keyword_rule_reports_value_only(buf: &[u8], expected: &[Match]) {
+    fn keyword_rule_reports_value_only(buf: &[u8], expected: &[(&str, usize, usize)]) {
         assert_eq!(scan(&[KEYWORD], buf), expected);
     }
 
     #[test_case(b"BEGIN key END", &[m(DOUBLE_ID, 0, 13)] ; "both_anchors_one_match")]
     #[test_case(b"BEGIN key END BEGIN other END", &[m(DOUBLE_ID, 0, 13), m(DOUBLE_ID, 14, 29)] ; "adjacent_blocks")]
     #[test_case(b"END BEGIN", &[] ; "anchors_without_structure")]
-    fn double_anchored_rule_deduplicates(buf: &[u8], expected: &[Match]) {
+    fn double_anchored_rule_deduplicates(buf: &[u8], expected: &[(&str, usize, usize)]) {
         assert_eq!(scan(&[DOUBLE], buf), expected);
     }
 
     #[test_case(b"num_2468", &[m(VERIFIED_ID, 0, 8)] ; "verify_accepts")]
     #[test_case(b"num_2461", &[] ; "verify_rejects")]
     #[test_case(b"num_2461 num_0000", &[m(VERIFIED_ID, 9, 17)] ; "verify_rejects_only_failing")]
-    fn verify_hook(buf: &[u8], expected: &[Match]) {
+    fn verify_hook(buf: &[u8], expected: &[(&str, usize, usize)]) {
         assert_eq!(scan(&[VERIFIED], buf), expected);
     }
 
     #[test_case(b"live_tok_1234", &[m(LONG_PREFIX_ID, 0, 13)] ; "embedded_anchor_is_not_a_hit")]
     #[test_case(b"live_tok_1234 tok_5678", &[m(LONG_PREFIX_ID, 0, 13), m(PREFIX_ID, 14, 22)] ; "shorter_anchor_still_hits_elsewhere")]
-    fn overlapping_anchors_resolve_to_leftmost_longest(buf: &[u8], expected: &[Match]) {
+    fn overlapping_anchors_resolve_to_leftmost_longest(
+        buf: &[u8],
+        expected: &[(&str, usize, usize)],
+    ) {
         assert_eq!(scan(&[UNBOUNDED_PREFIX, LONG_PREFIX], buf), expected);
     }
 
@@ -402,5 +516,85 @@ mod tests {
     #[test_case(b"9tok_1234" ; "preceded_by_digit")]
     fn boundary_prefix_rejects_hit_inside_word(buf: &[u8]) {
         assert_eq!(scan(&[PREFIX], buf), []);
+    }
+
+    fn base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let mut group = [0u8; 3];
+            group[..chunk.len()].copy_from_slice(chunk);
+            let bits = u32::from_be_bytes([0, group[0], group[1], group[2]]);
+            for i in 0..4 {
+                out.push(if i <= chunk.len() {
+                    ALPHABET[((bits >> (18 - 6 * i)) & 0x3F) as usize] as char
+                } else {
+                    '='
+                });
+            }
+        }
+        out
+    }
+
+    #[test_case(b"tok_1234" ; "aligned")]
+    #[test_case(b"x tok_1234" ; "offset_one")]
+    #[test_case(b"xy tok_1234" ; "offset_two")]
+    #[test_case(b"{\"token\":\"tok_1234\",\"other\":\"value\"}" ; "inside_json")]
+    fn decodes_base64_at_every_alignment(plain: &[u8]) {
+        let encoded = base64(plain);
+        let buf = format!("KEY={encoded}\n");
+        let hits = found(&[PREFIX], buf.as_bytes());
+        assert_eq!(hits.len(), 1, "{buf}");
+        assert_eq!(hits[0].secret, b"tok_1234");
+        assert_eq!(hits[0].encoding, Some(Encoding::Base64));
+        assert!(encoded.contains(&buf[hits[0].start..hits[0].end]));
+    }
+
+    #[test]
+    fn decodes_url_safe_alphabet() {
+        let encoded = base64(b"\xfb\xff tok_1234")
+            .replace('+', "-")
+            .replace('/', "_");
+        let hits = found(&[PREFIX], encoded.as_bytes());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].secret, b"tok_1234");
+    }
+
+    #[test]
+    fn decoded_secret_still_needs_confirmation() {
+        let buf = base64(b"tok_12 not a token");
+        assert!(found(&[PREFIX], buf.as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn plain_and_encoded_occurrences_are_both_reported() {
+        let buf = format!("tok_1234 {}", base64(b"tok_5678"));
+        let hits = found(&[PREFIX], buf.as_bytes());
+        let secrets: Vec<&[u8]> = hits.iter().map(|h| h.secret.as_slice()).collect();
+        assert_eq!(secrets, [&b"tok_1234"[..], b"tok_5678"]);
+        assert_eq!(hits[1].encoding, Some(Encoding::Base64));
+    }
+
+    #[test]
+    fn encoded_run_is_cut_to_the_window() {
+        let mut plain = vec![b'a'; 4096];
+        plain.extend_from_slice(b" tok_1234 ");
+        plain.extend(vec![b'b'; 4096]);
+        let buf = base64(&plain);
+        let hits = found(&[PREFIX], buf.as_bytes());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].secret, b"tok_1234");
+        assert!(
+            hits[0].end - hits[0].start < 256,
+            "run span {}",
+            hits[0].end - hits[0].start
+        );
+    }
+
+    #[test]
+    fn truncated_encoded_run_does_not_panic() {
+        let encoded = base64(b"xy tok_1234");
+        let buf = &encoded.as_bytes()[..encoded.len() - 4];
+        assert!(found(&[PREFIX], buf).is_empty());
     }
 }

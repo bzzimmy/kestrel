@@ -9,7 +9,7 @@ use memmap2::MmapOptions;
 use rayon::{Scope, ThreadPoolBuildError, ThreadPoolBuilder};
 use thiserror::Error;
 
-use crate::matcher::Matcher;
+use crate::matcher::{Encoding, Matcher};
 
 /// Files at least this large are mmap'd; smaller ones are read into a reused
 /// per-thread buffer, which beats mmap/munmap overhead for the small files
@@ -18,6 +18,7 @@ const MMAP_MIN_SIZE: usize = 1 << 20;
 
 thread_local! {
     static READ_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    static DECODE_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Debug, Error)]
@@ -50,6 +51,8 @@ pub struct Finding<'a> {
     /// 1-based line containing `start`.
     pub line: usize,
     pub secret: &'a [u8],
+    /// Set when `secret` was decoded from an encoded run at `start`.
+    pub encoding: Option<Encoding>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -188,22 +191,25 @@ impl<F: Fn(&Finding<'_>) + Sync> Scanner<'_, F> {
         let mut count = 0;
         let mut line = 1;
         let mut counted_to = 0;
-        for m in self.matcher.scan(buf) {
-            if m.start < counted_to {
-                line = 1;
-                counted_to = 0;
-            }
-            line += memchr_iter(b'\n', &buf[counted_to..m.start]).count();
-            counted_to = m.start;
-            (self.sink)(&Finding {
-                path,
-                rule_id: m.rule_id,
-                start: m.start,
-                line,
-                secret: &buf[m.start..m.end],
+        DECODE_BUF.with_borrow_mut(|scratch| {
+            self.matcher.scan(buf, scratch, |m| {
+                if m.start < counted_to {
+                    line = 1;
+                    counted_to = 0;
+                }
+                line += memchr_iter(b'\n', &buf[counted_to..m.start]).count();
+                counted_to = m.start;
+                (self.sink)(&Finding {
+                    path,
+                    rule_id: m.rule_id,
+                    start: m.start,
+                    line,
+                    secret: m.secret,
+                    encoding: m.encoding,
+                });
+                count += 1;
             });
-            count += 1;
-        }
+        });
         count
     }
 
