@@ -56,6 +56,18 @@ pub const RULES: &[Rule] = &[
         verify: None,
     },
     Rule {
+        id: "cerebras-api-key",
+        anchors: &["csk-"],
+        pattern: r"\bcsk-[a-z0-9]{48}\b",
+        verify: None,
+    },
+    Rule {
+        id: "runpod-api-key",
+        anchors: &["rpa_"],
+        pattern: r"\brpa_[A-Z0-9]{40}[A-Za-z0-9]{6}\b",
+        verify: None,
+    },
+    Rule {
         id: "elevenlabs-api-key",
         anchors: &["sk_"],
         pattern: r"\bsk_[a-f0-9]{48}\b",
@@ -90,6 +102,8 @@ mod tests {
     const PERPLEXITY: &str = "perplexity-api-key";
     const REPLICATE: &str = "replicate-api-token";
     const TOGETHER: &str = "together-api-key";
+    const CEREBRAS: &str = "cerebras-api-key";
+    const RUNPOD: &str = "runpod-api-key";
     const ELEVENLABS: &str = "elevenlabs-api-key";
     const HUGGINGFACE: &str = "huggingface-token";
     const DEEPSEEK: &str = "deepseek-api-key";
@@ -102,6 +116,8 @@ mod tests {
     const PPLX_KEY: &str = "pplx-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKl";
     const R8_KEY: &str = "r8_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789A";
     const HF_KEY: &str = "hf_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGh";
+    const CSK_KEY: &str = "csk-abcdefghijklmnopqrstuvwxyz0123456789abcdefghijkl";
+    const RPA_KEY: &str = "rpa_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDaBcD12";
 
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
         crate::rules::scan(RULES, buf)
@@ -125,6 +141,8 @@ mod tests {
     #[test_case(&format!("{{\"key\": \"{PPLX_KEY}\"}}"), PERPLEXITY, PPLX_KEY ; "perplexity")]
     #[test_case(&format!("REPLICATE_API_TOKEN={R8_KEY}"), REPLICATE, R8_KEY ; "replicate")]
     #[test_case(&format!("tgp_v1_{}", repeat(b'a', 43)), TOGETHER, &format!("tgp_v1_{}", repeat(b'a', 43)) ; "together")]
+    #[test_case(&format!("CEREBRAS_API_KEY={CSK_KEY}"), CEREBRAS, CSK_KEY ; "cerebras")]
+    #[test_case(&format!("runpod.api_key = \"{RPA_KEY}\""), RUNPOD, RPA_KEY ; "runpod")]
     #[test_case(&format!("xi-api-key: sk_{HEX48}"), ELEVENLABS, &format!("sk_{HEX48}") ; "elevenlabs")]
     #[test_case(&format!("HF_TOKEN={HF_KEY}"), HUGGINGFACE, HF_KEY ; "huggingface")]
     #[test_case(&format!("DEEPSEEK_API_KEY=sk-{HEX32}"), DEEPSEEK, &format!("sk-{HEX32}") ; "deepseek_env")]
@@ -149,6 +167,10 @@ mod tests {
     #[test_case("pplx-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" ; "perplexity_too_short")]
     #[test_case("r8_AbCdEfGhIjKlMnOpQrStUvWxYz01234567" ; "replicate_too_short")]
     #[test_case(&format!("tgp_v1_{}", repeat(b'a', 42)) ; "together_too_short")]
+    #[test_case("csk-abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk" ; "cerebras_too_short")]
+    #[test_case("csk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKL" ; "cerebras_uppercase")]
+    #[test_case("rpa_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDaBcD1" ; "runpod_too_short")]
+    #[test_case("rpa_abcdefghijklmnopqrstuvwxyz0123456789ABCDaBcD12" ; "runpod_lowercase_body")]
     #[test_case("sk_live_AbCdEfGhIjKlMnOpQrStUvWx" ; "elevenlabs_ignores_stripe")]
     #[test_case(&format!("sk_{HEX32}") ; "elevenlabs_too_short")]
     #[test_case(&format!("sk_{}", repeat(b'A', 48)) ; "elevenlabs_not_hex")]
