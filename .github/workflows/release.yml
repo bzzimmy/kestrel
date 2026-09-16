@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          bin=target/${{ matrix.target }}/release/kestrel
+          ls -l "$bin"
+          tar -C "$(dirname "$bin")" -czf kestrel-${{ matrix.target }}.tar.gz kestrel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kestrel-${{ matrix.target }}
+          path: kestrel-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum kestrel-*.tar.gz > SHA256SUMS
+          prerelease=$([[ "$TAG" == *-* ]] && echo --prerelease || true)
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --generate-notes $prerelease *
