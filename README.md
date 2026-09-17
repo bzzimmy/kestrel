@@ -2,7 +2,7 @@
   <img src="assets/logo.svg" alt="kestrel — ultra-lightweight secret scanner" width="720">
 </p>
 
-Kestrel is an ultra-lightweight secret scanner for high-impact credentials, built to scan package registries at scale. It walks a directory tree, emits one JSON line per finding, and exits. ~75 rules are compiled into the binary, each a literal anchor plus a confirming regex: one Aho-Corasick pass over mmap'd files, regex only on bounded windows around hits, parallel across files. No config, no network, no verification, no dedup. Public keys, JWTs, webhooks and bare UUID/hex tokens are deliberately excluded.
+Kestrel is an ultra-lightweight secret scanner for high-impact credentials, built to scan package registries at scale. It walks a directory tree, emits one JSON line per finding, and exits. ~75 rules are compiled into the binary, each a literal anchor plus a confirming regex: one Aho-Corasick pass over files streamed through a fixed per-thread buffer, regex only on bounded windows around hits, parallel across files. No config, no network, no verification, no dedup. Public keys, JWTs, webhooks and bare UUID/hex tokens are deliberately excluded.
 
 > [!WARNING]
 > Kestrel is in very early development. The rule set has been cross-checked against [betterleaks](https://github.com/betterleaks/betterleaks) but has not yet been benchmarked on real data. Expect false positives, missed formats, and breaking changes.
@@ -27,7 +27,7 @@ cargo install --git https://github.com/bzzimmy/kestrel
 # Scan a directory tree
 kestrel /path/to/dir
 
-# Limit worker threads (default: available cores)
+# Limit worker threads (default: 4 per core, at least 8, since scanning is I/O-bound)
 kestrel /path/to/dir --threads 2
 
 # Skip files larger than 10 MB

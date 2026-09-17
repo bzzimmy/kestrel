@@ -55,6 +55,22 @@ pub struct Matcher {
     patterns: Vec<Pattern>,
 }
 
+/// Per-thread working memory reused across `Matcher::scan` calls; secrets may borrow from it.
+#[derive(Debug, Default)]
+pub struct Scratch {
+    decoded: Vec<u8>,
+    last_start: Vec<Option<usize>>,
+}
+
+impl Scratch {
+    pub const fn new() -> Self {
+        Self {
+            decoded: Vec::new(),
+            last_start: Vec::new(),
+        }
+    }
+}
+
 /// What an automaton pattern stands for: a rule's anchor as-is, or that
 /// anchor as it appears inside base64 text at a given byte alignment.
 struct Pattern {
@@ -120,13 +136,11 @@ impl Matcher {
         })
     }
 
-    /// Calls `sink` with every confirmed secret in `buf`, in anchor-hit
-    /// order. The same `(rule, start)` is never reported twice. Anchor hits
-    /// are non-overlapping and leftmost-longest, so an anchor embedded in a
-    /// longer one (`xoxb-` inside `xoxe.xoxb-`) only fires on its own.
-    /// `scratch` holds decoded base64 between calls; secrets borrow from it.
-    pub fn scan(&self, buf: &[u8], scratch: &mut Vec<u8>, mut sink: impl FnMut(&Match<'_>)) {
-        let mut last_start = vec![None; self.rules.len()];
+    /// Calls `sink` with every confirmed secret in `buf`, in anchor-hit order.
+    /// Hits are leftmost-longest, so `xoxb-` inside `xoxe.xoxb-` only fires on its own.
+    pub fn scan(&self, buf: &[u8], scratch: &mut Scratch, mut sink: impl FnMut(&Match<'_>)) {
+        scratch.last_start.clear();
+        scratch.last_start.resize(self.rules.len(), None);
         for hit in self.automaton.find_iter(buf) {
             let pattern = &self.patterns[hit.pattern().as_usize()];
             let rule = &self.rules[pattern.rule];
@@ -138,17 +152,28 @@ impl Matcher {
                     secret: &buf[start..end],
                     encoding: None,
                 }),
-                Some(alignment) => rule.confirm_encoded(buf, hit.start(), alignment, scratch),
+                Some(alignment) => {
+                    rule.confirm_encoded(buf, hit.start(), alignment, &mut scratch.decoded)
+                }
             };
             let Some(found) = found else {
                 continue;
             };
-            if last_start[pattern.rule] == Some(found.start) {
+            if scratch.last_start[pattern.rule] == Some(found.start) {
                 continue;
             }
-            last_start[pattern.rule] = Some(found.start);
+            scratch.last_start[pattern.rule] = Some(found.start);
             sink(&found);
         }
+    }
+
+    /// Max distance from an anchor hit to any byte confirmation inspects or reports.
+    pub fn reach(&self) -> usize {
+        self.rules
+            .iter()
+            .map(CompiledRule::reach)
+            .max()
+            .unwrap_or_default()
     }
 }
 
@@ -230,7 +255,7 @@ impl CompiledRule {
         alignment: Alignment,
         scratch: &'s mut Vec<u8>,
     ) -> Option<Match<'s>> {
-        let limit = self.window.div_ceil(DECODED_GROUP) * ENCODED_GROUP + ENCODED_GROUP;
+        let limit = self.encoded_limit();
         let group_start = hit.checked_sub(alignment.skip)?;
         let run_lo = (group_start.saturating_sub(limit)..group_start)
             .rev()
@@ -251,6 +276,16 @@ impl CompiledRule {
             secret: &scratch[start..end],
             encoding: Some(Encoding::Base64),
         })
+    }
+
+    /// Base64 characters taken on each side of an encoded hit: the window in
+    /// encoded form plus one group of alignment slack.
+    fn encoded_limit(&self) -> usize {
+        self.window.div_ceil(DECODED_GROUP) * ENCODED_GROUP + ENCODED_GROUP
+    }
+
+    fn reach(&self) -> usize {
+        (self.window + BOUNDARY_SLACK).max(self.encoded_limit() + ENCODED_GROUP)
     }
 }
 
@@ -285,7 +320,7 @@ fn is_word_byte(byte: u8) -> bool {
 mod tests {
     use test_case::test_case;
 
-    use super::{BuildError, CompiledRule, Encoding, Matcher, UNBOUNDED_WINDOW};
+    use super::{BuildError, CompiledRule, Encoding, Matcher, Scratch, UNBOUNDED_WINDOW};
     use crate::rules::Rule;
 
     const PREFIX_ID: &str = "prefix";
@@ -357,7 +392,7 @@ mod tests {
     fn found(rules: &[Rule], buf: &[u8]) -> Vec<Found> {
         let matcher = Matcher::new(rules).expect("test rules must compile");
         let mut out = Vec::new();
-        matcher.scan(buf, &mut Vec::new(), |m| {
+        matcher.scan(buf, &mut Scratch::new(), |m| {
             out.push(Found {
                 rule_id: m.rule_id,
                 start: m.start,

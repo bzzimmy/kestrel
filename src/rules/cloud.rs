@@ -173,7 +173,7 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         id: "private-key",
-        anchors: &["-----BEGIN", "PRIVATE KEY-----"],
+        anchors: &["PRIVATE KEY-----", "PRIVATE KEY BLOCK-----"],
         pattern: r#"-----BEGIN[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----[A-Za-z0-9+/=\s:,.\\'"+-]{64,}?-----END[ A-Z0-9_-]{0,32}PRIVATE KEY(?: BLOCK)?-----"#,
         verify: None,
     },

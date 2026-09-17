@@ -48,7 +48,7 @@ pub fn all() -> impl Iterator<Item = &'static Rule> {
 fn scan<'b>(rules: &[Rule], buf: &'b [u8]) -> Vec<(&'static str, &'b [u8])> {
     let matcher = crate::matcher::Matcher::new(rules).expect("rules must compile");
     let mut out = Vec::new();
-    matcher.scan(buf, &mut Vec::new(), |m| {
+    matcher.scan(buf, &mut crate::matcher::Scratch::new(), |m| {
         assert!(m.encoding.is_none(), "rule tests scan plain text");
         out.push((m.rule_id, &buf[m.start..m.end]));
     });

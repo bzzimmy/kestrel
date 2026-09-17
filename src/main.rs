@@ -26,7 +26,9 @@ struct Cli {
     /// Directory to scan recursively
     dir: PathBuf,
 
-    /// Worker threads (default: available cores)
+    /// Worker threads. Defaults to 4 per core (at least 8): scanning is
+    /// bound by read latency rather than CPU, so oversubscribing the cores
+    /// keeps more reads in flight
     #[arg(short, long, value_name = "N")]
     threads: Option<usize>,
 
