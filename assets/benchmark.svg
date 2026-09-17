@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#808080">
+  <title>kestrel vs kingfisher — 53.8 GB, 1.38M files, 24,998 npm packages</title>
+  <text x="8" y="18" font-size="12">53.8 GB · 1.38M files · 24,998 npm packages · M5 Pro, cold cache</text>
+  <g transform="translate(520 8)">
+    <rect x="0" y="0" width="10" height="10" rx="2" fill="#c0632e"/>
+    <text x="16" y="10" font-size="12">kestrel</text>
+    <rect x="86" y="0" width="10" height="10" rx="2" fill="#4f6d8a"/>
+    <text x="102" y="10" font-size="12">kingfisher</text>
+  </g>
+
+  <g transform="translate(8 52)">
+    <text x="0" y="14">elapsed</text>
+    <rect x="122" y="4" width="66" height="12" rx="2" fill="#c0632e"/>
+    <text x="196" y="14">24.4 s</text>
+    <rect x="122" y="22" width="430" height="12" rx="2" fill="#4f6d8a"/>
+    <text x="560" y="32">159.5 s</text>
+  </g>
+
+  <g transform="translate(8 116)">
+    <text x="0" y="14">throughput</text>
+    <rect x="122" y="4" width="430" height="12" rx="2" fill="#c0632e"/>
+    <text x="560" y="14">2,209 MB/s</text>
+    <rect x="122" y="22" width="66" height="12" rx="2" fill="#4f6d8a"/>
+    <text x="196" y="32">337 MB/s</text>
+  </g>
+
+  <g transform="translate(8 180)">
+    <text x="0" y="14">peak memory</text>
+    <rect x="122" y="4" width="24" height="12" rx="2" fill="#c0632e"/>
+    <text x="154" y="14">162 MB</text>
+    <rect x="122" y="22" width="430" height="12" rx="2" fill="#4f6d8a"/>
+    <text x="560" y="32">2,906 MB</text>
+  </g>
+
+  <g transform="translate(8 244)">
+    <text x="0" y="14">binary size</text>
+    <rect x="122" y="4" width="28" height="12" rx="2" fill="#c0632e"/>
+    <text x="158" y="14">1.7 MB</text>
+    <rect x="122" y="22" width="430" height="12" rx="2" fill="#4f6d8a"/>
+    <text x="560" y="32">26.4 MB</text>
+  </g>
+
+  <text x="8" y="312" font-size="11">kestrel 0.1.0 (75 rules) · kingfisher 2.2.0 (485 rules) · verification off · no archive extraction</text>
+  <text x="8" y="328" font-size="11">no file-size limit · default parallelism · findings not compared: rule sets differ</text>
+</svg>
