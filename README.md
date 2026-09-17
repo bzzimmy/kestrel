@@ -46,9 +46,7 @@ Rules live in [`src/rules/`](src/rules): VCS and registries (GitHub, GitLab, Atl
 
 ### Benchmark
 
-<p align="center">
-  <img src="assets/benchmark.svg" alt="kestrel vs kingfisher on 53.8 GB of npm packages" width="720">
-</p>
+<img src="assets/benchmark.svg" alt="kestrel vs kingfisher on 53.8 GB of npm packages" width="720">
 
 Both scanners ran with verification off, archive extraction off and no file-size limit over the same 24,998 randomly sampled npm packages. Findings are not compared: [Kingfisher](https://github.com/mongodb/kingfisher) ships 485 rules including JWTs and generic patterns Kestrel excludes by design. On the rule families both cover, every Kingfisher finding was reviewed and Kestrel matches or exceeds it.
 
