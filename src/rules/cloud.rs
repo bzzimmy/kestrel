@@ -168,7 +168,7 @@ pub const RULES: &[Rule] = &[
             "amqp://",
             "amqps://",
         ],
-        pattern: r#"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?)://[^:/@\s'"`]{0,64}:[^/@\s'"`]{1,128}@[^\s'"`/?@:,]{1,253}(?::[0-9]{1,5})?(?:,[^\s'"`/?@:,]{1,253}(?::[0-9]{1,5})?){0,8}(?:[/?][A-Za-z0-9._~!$&*+,;=:@%/?-]{0,256})?"#,
+        pattern: r#"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?)://[^:/@\s'"`]{0,128}:[^/@\s'"`]{1,128}@[^\s'"`/?@:,]{1,253}(?::[0-9]{1,5})?(?:,[^\s'"`/?@:,]{1,253}(?::[0-9]{1,5})?){0,8}(?:[/?][A-Za-z0-9._~!$&*+,;=:@%/?-]{0,256})?"#,
         verify: Some(has_real_credentials),
     },
     Rule {
@@ -282,6 +282,8 @@ mod tests {
     const MONGO_REPLICA_URI: &str =
         "mongodb://app:Tr0ub4dor3@db1.internal:27017,db2.internal:27017/app";
     const REDIS_URI: &str = "rediss://:Tr0ub4dor3@cache.internal:6380";
+    /// Managed MongoDB tenants use `<32 hex>__<40 alnum>` usernames (74 chars).
+    const MONGO_LONG_USER_URI: &str = "mongodb://492248e64b06438db5a62e81b4e6dc26__4qw2ttcf43r0qwq30z60cuqtm42mqcvh14onku5:ZxSMiMVe9liolQyP0AnVm@h-h0dv6qe3.rg-o5ojnm69.mongo-o-s.eu-n-1.cloud.plus4u.net:27017,h-zk893n61.rg-o5ojnm69.mongo-o-s.eu-n-1.cloud.plus4u.net:27017/492248e64b06438db5a62e81b4e6dc26?replicaSet=r-da9gbfgy";
     const AMQP_URI: &str = "amqps://app:Tr0ub4dor3@mq.internal/vhost";
     const EC_KEY: &str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIJ6H2XqzL0mKoZIzj0DAQehRANCAAQb\nAwEHoUQDQgAEr5KjVn1TfC8Qd0yXpBmZ4wQ==\n-----END EC PRIVATE KEY-----";
     const ENCRYPTED_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,3F2A9C1E5B7D8046A1B2C3D4E5F60718\n\nMIIEpAIBAAKCAQEAxq7Z9vW3kL2mN4oP6qR8sT0uV2wX4yZ6aB8cD0eF2gH4iJ6k\n-----END RSA PRIVATE KEY-----";
@@ -345,6 +347,7 @@ mod tests {
     #[test_case(&format!("DATABASE_URL={PG_URI}\n"), DATABASE_URI, PG_URI ; "database_uri_postgres_env")]
     #[test_case(&format!("\"uri\": \"{MONGO_SRV_URI}\""), DATABASE_URI, MONGO_SRV_URI ; "database_uri_mongodb_srv_json")]
     #[test_case(MONGO_REPLICA_URI, DATABASE_URI, MONGO_REPLICA_URI ; "database_uri_mongodb_replica_set")]
+    #[test_case(&format!("\"primary\": \"{MONGO_LONG_USER_URI}\","), DATABASE_URI, MONGO_LONG_USER_URI ; "database_uri_mongodb_long_username")]
     #[test_case(&format!("url: {REDIS_URI}\n"), DATABASE_URI, REDIS_URI ; "database_uri_redis_no_user")]
     #[test_case(&format!("const broker = '{AMQP_URI}';"), DATABASE_URI, AMQP_URI ; "database_uri_amqp")]
     #[test_case(EC_KEY, PRIVATE_KEY, EC_KEY ; "ec_private_key")]

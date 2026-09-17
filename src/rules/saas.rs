@@ -148,6 +148,12 @@ pub const RULES: &[Rule] = &[
         ),
         verify: None,
     },
+    Rule {
+        id: "telegram-bot-token",
+        anchors: &[":AA"],
+        pattern: r"(?:\b|bot)([0-9]{8,10}:AA[A-Za-z0-9_-]{33})(?:[^A-Za-z0-9_-]|\z)",
+        verify: None,
+    },
 ];
 
 fn is_not_binary_base64(secret: &[u8]) -> bool {
@@ -222,6 +228,7 @@ mod tests {
     const CLOUDINARY: &str = "cloudinary-url";
     const SENTRY: &str = "sentry-token";
     const AUTH0: &str = "auth0-client-secret";
+    const TELEGRAM: &str = "telegram-bot-token";
 
     const HEX64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const XOXB: &str = "xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx";
@@ -233,6 +240,7 @@ mod tests {
         "MTAwMzQyMDAzNDY3Mzg3MzM3Nw.GaBcDe.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_";
     const SK_LIVE: &str = "sk_live_AbCdEfGhIjKlMnOpQrStUvWx";
     const AUTH0_SECRET: &str = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdEfGhIjKlMnOpQrStUvWxYz01";
+    const TELEGRAM_TOKEN: &str = "8736894604:AAHJYQRIwoHj0PiNnPZOsYUHa58xMQ-M7l4";
 
     fn scan(buf: &[u8]) -> Vec<(&'static str, &[u8])> {
         crate::rules::scan(RULES, buf)
@@ -282,6 +290,9 @@ mod tests {
     #[test_case(&format!("AUTH0_CLIENT_SECRET={AUTH0_SECRET}"), AUTH0, AUTH0_SECRET ; "auth0_env")]
     #[test_case(&format!("auth0: {{ clientSecret: '{AUTH0_SECRET}' }}"), AUTH0, AUTH0_SECRET ; "auth0_nested_js")]
     #[test_case(&format!("new Auth0({{ client_secret: \"{AUTH0_SECRET}\" }})"), AUTH0, AUTH0_SECRET ; "auth0_constructor")]
+    #[test_case(&format!("process.env.TELEGRAM_BOT_TOKEN || '{TELEGRAM_TOKEN}'"), TELEGRAM, TELEGRAM_TOKEN ; "telegram_js_fallback")]
+    #[test_case(&format!("BOT_TOKEN={TELEGRAM_TOKEN}"), TELEGRAM, TELEGRAM_TOKEN ; "telegram_env_without_keyword")]
+    #[test_case(&format!("https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"), TELEGRAM, TELEGRAM_TOKEN ; "telegram_api_url")]
     fn single_match(buf: &str, rule_id: &'static str, secret: &str) {
         assert_eq!(scan(buf.as_bytes()), [(rule_id, secret.as_bytes())]);
     }
@@ -294,6 +305,10 @@ mod tests {
     #[test_case("pk_live_AbCdEfGhIjKlMnOpQrStUvWx" ; "stripe_publishable")]
     #[test_case("sk_test_AbCdEfGhIjKlMnOpQrStUvWx" ; "stripe_test")]
     #[test_case("sk_live_short" ; "stripe_too_short")]
+    #[test_case("1234567:AAHJYQRIwoHj0PiNnPZOsYUHa58xMQ-M7l4" ; "telegram_bot_id_too_short")]
+    #[test_case("8736894604:ABHJYQRIwoHj0PiNnPZOsYUHa58xMQ-M7l4" ; "telegram_missing_aa_prefix")]
+    #[test_case("8736894604:AAHJYQRIwoHj0PiNnPZOsYUHa58xMQ-M7l" ; "telegram_secret_too_short")]
+    #[test_case("x8736894604:AAHJYQRIwoHj0PiNnPZOsYUHa58xMQ-M7l4" ; "telegram_no_leading_boundary")]
     #[test_case("shpat_0123456789abcdef0123456789abcde" ; "shopify_too_short")]
     #[test_case("sq0atp-tooshort" ; "square_too_short")]
     #[test_case(&format!("EAAA{}", filler(59)) ; "square_personal_too_short")]
